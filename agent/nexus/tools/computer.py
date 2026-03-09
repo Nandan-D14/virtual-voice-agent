@@ -1,0 +1,140 @@
+"""Mouse and keyboard tools for E2B desktop control."""
+
+from __future__ import annotations
+
+
+def left_click(x: int, y: int) -> dict:
+    """Click the left mouse button at screen coordinates (x, y).
+
+    Use this to click buttons, links, icons, or any UI element.
+    Coordinates are based on the 1024x768 screen resolution.
+
+    Args:
+        x: Horizontal position from left edge (0-1024).
+        y: Vertical position from top edge (0-768).
+
+    Returns:
+        dict with status message.
+    """
+    from nexus.tools._context import get_sandbox
+    sandbox = get_sandbox()
+    sandbox.left_click(x, y)
+    return {"status": "success", "message": f"Left clicked at ({x}, {y})"}
+
+
+def right_click(x: int, y: int) -> dict:
+    """Right-click at screen coordinates (x, y) to open context menus.
+
+    Args:
+        x: Horizontal position (0-1024).
+        y: Vertical position (0-768).
+
+    Returns:
+        dict with status message.
+    """
+    from nexus.tools._context import get_sandbox
+    sandbox = get_sandbox()
+    sandbox.right_click(x, y)
+    return {"status": "success", "message": f"Right clicked at ({x}, {y})"}
+
+
+def double_click(x: int, y: int) -> dict:
+    """Double-click at screen coordinates (x, y) to open files or select text.
+
+    Args:
+        x: Horizontal position (0-1024).
+        y: Vertical position (0-768).
+
+    Returns:
+        dict with status message.
+    """
+    from nexus.tools._context import get_sandbox
+    sandbox = get_sandbox()
+    sandbox.double_click(x, y)
+    return {"status": "success", "message": f"Double clicked at ({x}, {y})"}
+
+
+def type_text(text: str) -> dict:
+    """Type text at the current cursor position.
+
+    Use this after clicking on a text field, editor, terminal, or any input area.
+    The text is typed character by character with realistic delays.
+
+    Args:
+        text: The text to type. Can include newlines.
+
+    Returns:
+        dict with status message.
+    """
+    from nexus.tools._context import get_sandbox
+    sandbox = get_sandbox()
+    sandbox.type_text(text)
+    return {"status": "success", "message": f"Typed {len(text)} characters"}
+
+
+def press_key(key: str) -> dict:
+    """Press a keyboard key or key combination.
+
+    Examples:
+        press_key("enter")       - Press Enter
+        press_key("ctrl+c")      - Copy
+        press_key("ctrl+v")      - Paste
+        press_key("alt+tab")     - Switch windows
+        press_key("ctrl+s")      - Save
+        press_key("escape")      - Escape
+        press_key("tab")         - Tab
+        press_key("backspace")   - Backspace
+        press_key("ctrl+shift+t") - Reopen closed tab
+
+    Args:
+        key: Key name or combo with '+' separator. Case-insensitive.
+
+    Returns:
+        dict with status message.
+    """
+    from nexus.tools._context import get_sandbox
+    sandbox = get_sandbox()
+
+    parts = [k.strip().lower() for k in key.split("+")]
+    if len(parts) == 1:
+        sandbox.press(parts[0])
+    else:
+        sandbox.press(parts)
+
+    return {"status": "success", "message": f"Pressed {key}"}
+
+
+def scroll_screen(direction: str, amount: int = 3) -> dict:
+    """Scroll the screen up or down.
+
+    Args:
+        direction: 'up' or 'down'.
+        amount: Number of scroll steps (default 3).
+
+    Returns:
+        dict with status message.
+    """
+    from nexus.tools._context import get_sandbox
+    sandbox = get_sandbox()
+    sandbox.scroll(direction, amount)
+    return {"status": "success", "message": f"Scrolled {direction} by {amount}"}
+
+
+def drag(from_x: int, from_y: int, to_x: int, to_y: int) -> dict:
+    """Drag from one screen position to another.
+
+    Use this to move windows, drag files, select text, or resize elements.
+
+    Args:
+        from_x: Starting X coordinate.
+        from_y: Starting Y coordinate.
+        to_x: Ending X coordinate.
+        to_y: Ending Y coordinate.
+
+    Returns:
+        dict with status message.
+    """
+    from nexus.tools._context import get_sandbox
+    sandbox = get_sandbox()
+    sandbox.drag(from_x, from_y, to_x, to_y)
+    return {"status": "success", "message": f"Dragged from ({from_x},{from_y}) to ({to_x},{to_y})"}

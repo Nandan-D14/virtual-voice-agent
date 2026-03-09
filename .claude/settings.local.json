@@ -1,0 +1,20 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(grep -v \"^\\\\.\\\\.$\")",
+      "WebSearch",
+      "WebFetch(domain:google.github.io)",
+      "WebFetch(domain:e2b.dev)",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:deepwiki.com)",
+      "WebFetch(domain:pypi.org)",
+      "WebFetch(domain:ai.google.dev)",
+      "WebFetch(domain:medium.com)",
+      "WebFetch(domain:atamel.dev)",
+      "WebFetch(domain:discuss.ai.google.dev)",
+      "WebFetch(domain:colab.research.google.com)",
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "WebFetch(domain:googleapis.github.io)"
+    ]
+  }
+}
