@@ -12,7 +12,7 @@ from starlette.websockets import WebSocket
 
 from nexus.agent import create_agent, create_runner, run_agent_turn
 from nexus.tools._context import set_sandbox
-from nexus.voice import GeminiLiveManager
+from nexus.config import settings
 from nexus.prompts.system import SYSTEM_PROMPT
 
 if TYPE_CHECKING:
@@ -27,7 +27,13 @@ class NexusOrchestrator:
     def __init__(self, session: "Session", ws: WebSocket) -> None:
         self.session = session
         self.ws = ws
-        self.voice = GeminiLiveManager()
+        self.voice = None
+        self._voice_connected = False
+
+        # Only create voice manager when Google API key is available
+        if settings.google_api_key:
+            from nexus.voice import GeminiLiveManager
+            self.voice = GeminiLiveManager()
 
         # ADK agent + runner
         self._agent = create_agent()
@@ -40,8 +46,17 @@ class NexusOrchestrator:
         # Bind sandbox to tool context
         set_sandbox(self.session.sandbox)
 
-        # Connect to Gemini Live
-        await self.voice.connect(system_instruction=SYSTEM_PROMPT)
+        # Connect to Gemini Live (non-blocking: text input works even if this fails)
+        if self.voice:
+            try:
+                await self.voice.connect(system_instruction=SYSTEM_PROMPT)
+                self._voice_connected = True
+                logger.info("Gemini Live voice connected")
+            except Exception:
+                logger.warning("Gemini Live connection failed — voice disabled, text input still works")
+        else:
+            logger.info("No Google API key — voice disabled, text input works")
+            self._voice_connected = False
 
         # Create ADK session
         adk_session = await self._session_service.create_session(
@@ -61,6 +76,8 @@ class NexusOrchestrator:
 
     async def handle_user_audio(self, pcm_data: bytes) -> None:
         """Forward mic audio to Gemini Live."""
+        if not self._voice_connected:
+            return
         await self.voice.send_audio(pcm_data)
         self.session.touch()
 
@@ -88,6 +105,8 @@ class NexusOrchestrator:
 
     async def run_voice_receive_loop(self) -> None:
         """Background task: read from Gemini Live, forward to frontend."""
+        if not self._voice_connected:
+            return
         try:
             async for event_type, data in self.voice.receive_events():
                 if event_type == "audio":
@@ -106,7 +125,8 @@ class NexusOrchestrator:
 
     async def close(self) -> None:
         """Shut down orchestrator resources."""
-        await self.voice.close()
+        if self._voice_connected and self.voice:
+            await self.voice.close()
 
     # ── Private ────────────────────────────────────────────────
 
@@ -132,10 +152,11 @@ class NexusOrchestrator:
                     "text": response,
                 })
                 # Feed to Gemini Live for TTS
-                try:
-                    await self.voice.send_text(response)
-                except Exception:
-                    logger.warning("Failed to send TTS for response")
+                if self._voice_connected:
+                    try:
+                        await self.voice.send_text(response)
+                    except Exception:
+                        logger.warning("Failed to send TTS for response")
 
                 await self._send_json({
                     "type": "agent_complete",
@@ -153,43 +174,62 @@ class NexusOrchestrator:
     async def _on_agent_event(self, event: Any) -> None:
         """Callback for each ADK agent event — stream to frontend."""
         try:
-            # Tool calls
-            if event.actions and event.actions.tool_calls:
-                for tc in event.actions.tool_calls:
-                    await self._send_json({
-                        "type": "agent_tool_call",
-                        "tool": tc.tool_name if hasattr(tc, 'tool_name') else str(tc),
-                        "args": tc.tool_input if hasattr(tc, 'tool_input') else {},
-                    })
+            # Tool calls (ADK uses get_function_calls() or content.parts with function_call)
+            function_calls = []
+            if hasattr(event, 'get_function_calls'):
+                function_calls = event.get_function_calls() or []
+            elif hasattr(event, 'actions') and event.actions:
+                if hasattr(event.actions, 'tool_calls') and event.actions.tool_calls:
+                    function_calls = event.actions.tool_calls
 
-            # Agent thinking / intermediate content
-            if event.content and event.content.parts and not event.is_final_response():
-                for part in event.content.parts:
-                    if part.text:
-                        await self._send_json({
-                            "type": "agent_thinking",
-                            "content": part.text,
-                        })
-
-            # Tool results
-            if hasattr(event, 'tool_result') and event.tool_result:
-                result = event.tool_result
-                tool_name = result.get("tool_name", "unknown") if isinstance(result, dict) else "unknown"
-                output = result.get("output", str(result)) if isinstance(result, dict) else str(result)
-
+            for fc in function_calls:
+                tool_name = getattr(fc, 'name', None) or getattr(fc, 'tool_name', str(fc))
+                tool_args = getattr(fc, 'args', None) or getattr(fc, 'tool_input', {})
                 await self._send_json({
-                    "type": "agent_tool_result",
+                    "type": "agent_tool_call",
                     "tool": tool_name,
-                    "output": output[:2000],  # Truncate large outputs
+                    "args": dict(tool_args) if tool_args else {},
                 })
 
-                # If the tool returned a screenshot, forward it
-                if isinstance(result, dict) and "image" in result:
-                    await self._send_json({
-                        "type": "agent_screenshot",
-                        "image_b64": result["image"],
-                        "analysis": "",
-                    })
+            # Agent thinking / intermediate content
+            if (
+                hasattr(event, 'content') and event.content
+                and hasattr(event.content, 'parts') and event.content.parts
+                and not event.is_final_response()
+            ):
+                for part in event.content.parts:
+                    text = getattr(part, 'text', None)
+                    if text:
+                        await self._send_json({
+                            "type": "agent_thinking",
+                            "content": text,
+                        })
+
+            # Tool results (function responses in content parts)
+            if hasattr(event, 'content') and event.content and hasattr(event.content, 'parts') and event.content.parts:
+                for part in event.content.parts:
+                    fn_resp = getattr(part, 'function_response', None)
+                    if fn_resp:
+                        tool_name = getattr(fn_resp, 'name', 'unknown')
+                        output = getattr(fn_resp, 'response', {})
+                        output_str = str(output)[:2000]
+
+                        await self._send_json({
+                            "type": "agent_tool_result",
+                            "tool": tool_name,
+                            "output": output_str,
+                        })
+
+                        # If this was a screenshot tool call, forward the stored image to frontend
+                        if tool_name == "take_screenshot":
+                            from nexus.tools.screen import get_last_screenshot_b64
+                            img_b64 = get_last_screenshot_b64()
+                            if img_b64:
+                                await self._send_json({
+                                    "type": "agent_screenshot",
+                                    "image_b64": img_b64,
+                                    "analysis": output.get("description", "") if isinstance(output, dict) else "",
+                                })
 
         except Exception:
             logger.exception("Error streaming agent event")

@@ -27,7 +27,9 @@ export default function SessionPage() {
 
   // Session data
   const { session, destroySession } = useSession();
-  const [streamUrl, setStreamUrl] = useState<string | null>(null);
+  const [streamUrl, setStreamUrl] = useState<string | null>(
+    session?.stream_url ?? null
+  );
   const [phase, setPhase] = useState<SessionPhase>("idle");
 
   // Chat state

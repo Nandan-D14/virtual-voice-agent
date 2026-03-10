@@ -150,15 +150,40 @@ class SandboxManager:
 
     # -- Terminal ------------------------------------------------------------
 
-    def run_command(self, command: str, timeout: int = 30) -> dict:
+    def run_command(self, command: str, timeout: int = 30, background: bool = False) -> dict:
         """Run a shell command. Returns {stdout, stderr, exit_code}."""
         assert self._sandbox, "Sandbox not running"
-        result = self._sandbox.commands.run(command, timeout=timeout)
-        return {
-            "stdout": result.stdout or "",
-            "stderr": result.stderr or "",
-            "exit_code": result.exit_code,
-        }
+        if background:
+            # Launch in background using nohup so it doesn't block
+            bg_cmd = f"nohup {command} > /dev/null 2>&1 & echo $!"
+            result = self._sandbox.commands.run(bg_cmd, timeout=10)
+            pid = (result.stdout or "").strip()
+            return {
+                "stdout": f"Started in background (PID: {pid})" if pid else "Started in background",
+                "stderr": result.stderr or "",
+                "exit_code": 0,
+            }
+        try:
+            result = self._sandbox.commands.run(command, timeout=timeout)
+            return {
+                "stdout": result.stdout or "",
+                "stderr": result.stderr or "",
+                "exit_code": result.exit_code,
+            }
+        except Exception as e:
+            err_msg = str(e)
+            # Try to extract structured info from CommandExitException
+            stdout = getattr(e, 'stdout', '') or ''
+            stderr = getattr(e, 'stderr', '') or err_msg
+            exit_code = getattr(e, 'exit_code', -1)
+            if "deadline exceeded" in err_msg or "timeout" in err_msg.lower():
+                stderr = f"Command timed out after {timeout}s. If launching a GUI app, use background=True."
+                exit_code = -1
+            return {
+                "stdout": stdout,
+                "stderr": stderr,
+                "exit_code": exit_code if exit_code is not None else -1,
+            }
 
     # -- Applications --------------------------------------------------------
 

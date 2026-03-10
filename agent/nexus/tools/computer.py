@@ -94,13 +94,7 @@ def press_key(key: str) -> dict:
     """
     from nexus.tools._context import get_sandbox
     sandbox = get_sandbox()
-
-    parts = [k.strip().lower() for k in key.split("+")]
-    if len(parts) == 1:
-        sandbox.press(parts[0])
-    else:
-        sandbox.press(parts)
-
+    sandbox.press_key(key)
     return {"status": "success", "message": f"Pressed {key}"}
 
 

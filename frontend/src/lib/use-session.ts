@@ -35,8 +35,27 @@ export interface UseSessionReturn {
  * The Next.js `/api/sessions` route is expected to proxy to the Python
  * FastAPI backend.
  */
+function loadSession(): SessionData | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = sessionStorage.getItem("nexus_session");
+    return raw ? (JSON.parse(raw) as SessionData) : null;
+  } catch {
+    return null;
+  }
+}
+
+function saveSession(data: SessionData | null) {
+  if (typeof window === "undefined") return;
+  if (data) {
+    sessionStorage.setItem("nexus_session", JSON.stringify(data));
+  } else {
+    sessionStorage.removeItem("nexus_session");
+  }
+}
+
 export function useSession(): UseSessionReturn {
-  const [session, setSession] = useState<SessionData | null>(null);
+  const [session, setSession] = useState<SessionData | null>(loadSession);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -62,6 +81,7 @@ export function useSession(): UseSessionReturn {
 
       const data: SessionData = await res.json();
       setSession(data);
+      saveSession(data);
       return data;
     } catch (err) {
       const msg =
@@ -80,6 +100,7 @@ export function useSession(): UseSessionReturn {
 
     // Optimistically clear local state so the UI reacts immediately.
     setSession(null);
+    saveSession(null);
     setError(null);
 
     try {
