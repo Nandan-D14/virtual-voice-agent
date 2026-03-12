@@ -9,9 +9,10 @@ type Message = {
 
 type Props = {
   messages: Message[];
+  isThinking?: boolean;
 };
 
-export function ConversationPanel({ messages }: Props) {
+export function ConversationPanel({ messages, isThinking = false }: Props) {
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -19,7 +20,7 @@ export function ConversationPanel({ messages }: Props) {
     if (el) {
       el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
     }
-  }, [messages]);
+  }, [messages, isThinking]);
 
   if (messages.length === 0) {
     return (
@@ -71,6 +72,23 @@ export function ConversationPanel({ messages }: Props) {
           </div>
         </div>
       ))}
+
+      {/* Thinking indicator */}
+      {isThinking && (
+        <div className="flex justify-start">
+          <div className="max-w-[80%] px-3.5 py-2.5 rounded-2xl rounded-bl-md bg-[#27272a] text-zinc-200">
+            <span className="block text-[10px] font-semibold uppercase tracking-wider opacity-50 mb-1">
+              NEXUS
+            </span>
+            <div className="flex items-center gap-1">
+              <span className="w-2 h-2 rounded-full bg-[#22d3ee] animate-bounce [animation-delay:0ms]" />
+              <span className="w-2 h-2 rounded-full bg-[#22d3ee] animate-bounce [animation-delay:150ms]" />
+              <span className="w-2 h-2 rounded-full bg-[#22d3ee] animate-bounce [animation-delay:300ms]" />
+              <span className="text-xs text-zinc-500 ml-2">Thinking...</span>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

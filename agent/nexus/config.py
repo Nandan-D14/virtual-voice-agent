@@ -18,15 +18,20 @@ class Settings(BaseSettings):
     gemini_live_model: str = "gemini-2.5-flash-native-audio-preview-12-2025"
     gemini_vision_model: str = "gemini-2.5-flash"
 
-    # Kilo Code (OpenAI-compatible gateway — used when google_api_key is empty)
+    # Kilo Code (OpenAI-compatible gateway — can be used alongside Gemini)
     kilo_api_key: str = ""
     kilo_model_id: str = "minimax/minimax-m2.5:free"
     kilo_gateway_url: str = "https://api.kilo.ai/api/gateway"
 
     @property
     def use_kilo(self) -> bool:
-        """True when Google key is absent and Kilo key is present."""
-        return bool(self.kilo_api_key) and not bool(self.google_api_key)
+        """True when Kilo is available for agent reasoning/tool calling."""
+        return bool(self.kilo_api_key)
+
+    @property
+    def use_vision(self) -> bool:
+        """True when Gemini vision is available for screenshot analysis."""
+        return bool(self.google_api_key)
 
     # Server
     frontend_url: str = "http://localhost:3000"

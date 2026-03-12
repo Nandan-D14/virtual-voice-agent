@@ -39,6 +39,9 @@ export default function SessionPage() {
   // Text input
   const [textInput, setTextInput] = useState("");
 
+  // Derived: agent is busy (thinking or acting)
+  const isBusy = phase === "thinking" || phase === "acting";
+
   // Audio player
   const audioPlayer = useRef(new AudioPlayer());
 
@@ -193,8 +196,8 @@ export default function SessionPage() {
             <DesktopPanel streamUrl={streamUrl} />
           </div>
 
-          {/* Demo picker (show when idle) */}
-          {events.length === 0 && isConnected && (
+          {/* Demo picker (show when idle and no messages sent yet) */}
+          {messages.length === 0 && events.length === 0 && isConnected && (
             <div className="px-4 pb-2">
               <DemoPicker onSelect={handleDemo} disabled={!isConnected} />
             </div>
@@ -207,14 +210,23 @@ export default function SessionPage() {
               value={textInput}
               onChange={(e) => setTextInput(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && handleTextSubmit()}
-              placeholder="Type a command..."
-              className="flex-1 bg-[#18181b] border border-[#27272a] rounded-lg px-3 py-2 text-sm text-white placeholder:text-zinc-600 focus:outline-none focus:border-[#22d3ee]/50"
+              placeholder={isBusy ? "Agent is working..." : "Type a command..."}
+              disabled={!isConnected || isBusy}
+              className="flex-1 bg-[#18181b] border border-[#27272a] rounded-lg px-3 py-2 text-sm text-white placeholder:text-zinc-600 focus:outline-none focus:border-[#22d3ee]/50 disabled:opacity-40 disabled:cursor-not-allowed"
             />
+            <button
+              type="button"
+              onClick={handleTextSubmit}
+              disabled={!isConnected || isBusy || !textInput.trim()}
+              className="px-4 py-2 rounded-lg bg-[#22d3ee]/15 text-[#22d3ee] border border-[#22d3ee]/20 text-sm font-medium hover:bg-[#22d3ee]/25 transition disabled:opacity-30 disabled:cursor-not-allowed"
+            >
+              Send
+            </button>
             <MicButton
               isRecording={isRecording}
               onStart={toggleMic}
               onStop={toggleMic}
-              disabled={!isConnected}
+              disabled={!isConnected || isBusy}
             />
           </div>
         </div>
@@ -225,7 +237,7 @@ export default function SessionPage() {
             Conversation
           </div>
           <div className="flex-1 overflow-y-auto">
-            <ConversationPanel messages={messages} />
+            <ConversationPanel messages={messages} isThinking={isBusy} />
           </div>
         </div>
       </div>

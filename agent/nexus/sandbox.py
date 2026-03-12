@@ -14,6 +14,10 @@ from nexus.config import settings
 logger = logging.getLogger(__name__)
 
 
+class SandboxDeadError(RuntimeError):
+    """Raised when the E2B sandbox has timed out or been destroyed."""
+
+
 class SandboxManager:
     """Manages a single E2B Desktop sandbox instance."""
 
@@ -28,6 +32,22 @@ class SandboxManager:
     @property
     def stream_url(self) -> Optional[str]:
         return self._stream_url
+
+    def _require_sandbox(self) -> None:
+        """Raise SandboxDeadError if sandbox is gone."""
+        if self._sandbox is None:
+            raise SandboxDeadError(
+                "Sandbox is not running. It may have timed out. "
+                "Please end this session and create a new one."
+            )
+
+    def extend_timeout(self, timeout: int = 300) -> None:
+        """Best-effort extend sandbox lifetime."""
+        if self._sandbox:
+            try:
+                self._sandbox.set_timeout(timeout)
+            except Exception:
+                logger.debug("Failed to extend sandbox timeout", exc_info=True)
 
     # -- Lifecycle -----------------------------------------------------------
 
@@ -70,8 +90,14 @@ class SandboxManager:
 
     def screenshot(self) -> bytes:
         """Capture the screen as PNG bytes."""
-        assert self._sandbox, "Sandbox not running"
-        return bytes(self._sandbox.screenshot())
+        self._require_sandbox()
+        try:
+            return bytes(self._sandbox.screenshot())
+        except Exception as e:
+            if "not found" in str(e).lower() or "timeout" in str(e).lower():
+                self._sandbox = None
+                raise SandboxDeadError("Sandbox timed out while taking screenshot.") from e
+            raise
 
     def screenshot_base64(self) -> str:
         """Capture the screen as a base64-encoded PNG string."""
@@ -92,67 +118,84 @@ class SandboxManager:
 
     def get_screen_size(self) -> tuple[int, int]:
         """Return (width, height) of the sandbox screen."""
-        assert self._sandbox, "Sandbox not running"
+        self._require_sandbox()
         return self._sandbox.get_screen_size()
 
     def get_cursor_position(self) -> tuple[int, int]:
         """Return (x, y) cursor position."""
-        assert self._sandbox, "Sandbox not running"
+        self._require_sandbox()
         return self._sandbox.get_cursor_position()
 
     # -- Mouse ---------------------------------------------------------------
 
     def left_click(self, x: int, y: int) -> None:
         """Left-click at screen coordinates."""
-        assert self._sandbox, "Sandbox not running"
+        self._require_sandbox()
         self._sandbox.left_click(x, y)
 
     def right_click(self, x: int, y: int) -> None:
         """Right-click at screen coordinates."""
-        assert self._sandbox, "Sandbox not running"
+        self._require_sandbox()
         self._sandbox.right_click(x, y)
 
     def double_click(self, x: int, y: int) -> None:
         """Double-click at screen coordinates."""
-        assert self._sandbox, "Sandbox not running"
+        self._require_sandbox()
         self._sandbox.double_click(x, y)
 
     def move_mouse(self, x: int, y: int) -> None:
         """Move mouse to coordinates without clicking."""
-        assert self._sandbox, "Sandbox not running"
+        self._require_sandbox()
         self._sandbox.move_mouse(x, y)
 
     def drag(self, from_x: int, from_y: int, to_x: int, to_y: int) -> None:
         """Drag from one point to another."""
-        assert self._sandbox, "Sandbox not running"
+        self._require_sandbox()
         self._sandbox.drag(fr=(from_x, from_y), to=(to_x, to_y))
 
     def scroll(self, direction: str = "down", amount: int = 3) -> None:
         """Scroll the screen. direction: 'up' or 'down'."""
-        assert self._sandbox, "Sandbox not running"
+        self._require_sandbox()
         self._sandbox.scroll(direction, amount)
 
     # -- Keyboard ------------------------------------------------------------
 
     def type_text(self, text: str) -> None:
         """Type text at the current cursor position."""
-        assert self._sandbox, "Sandbox not running"
+        self._require_sandbox()
         self._sandbox.write(text, chunk_size=25, delay_in_ms=75)
 
     def press_key(self, key: str) -> None:
         """Press a key or key combination. Examples: 'enter', 'ctrl+c', 'alt+tab'."""
-        assert self._sandbox, "Sandbox not running"
+        self._require_sandbox()
+        key_aliases = {
+            "return": "enter",
+            "esc": "escape",
+            "del": "delete",
+            "control": "ctrl",
+            "command": "meta",
+            "cmd": "meta",
+            "option": "alt",
+            "spacebar": "space",
+            "pgup": "pageup",
+            "pgdn": "pagedown",
+        }
+
+        def normalize(part: str) -> str:
+            lowered = part.strip().lower()
+            return key_aliases.get(lowered, lowered)
+
         if "+" in key:
-            combo = [k.strip() for k in key.split("+")]
+            combo = [normalize(part) for part in key.split("+") if part.strip()]
             self._sandbox.press(combo)
         else:
-            self._sandbox.press(key)
+            self._sandbox.press(normalize(key))
 
     # -- Terminal ------------------------------------------------------------
 
     def run_command(self, command: str, timeout: int = 30, background: bool = False) -> dict:
         """Run a shell command. Returns {stdout, stderr, exit_code}."""
-        assert self._sandbox, "Sandbox not running"
+        self._require_sandbox()
         if background:
             # Launch in background using nohup so it doesn't block
             bg_cmd = f"nohup {command} > /dev/null 2>&1 & echo $!"
@@ -189,5 +232,5 @@ class SandboxManager:
 
     def open_url(self, url: str) -> None:
         """Open a URL in the default browser."""
-        assert self._sandbox, "Sandbox not running"
+        self._require_sandbox()
         self._sandbox.open(url)
