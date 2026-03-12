@@ -24,8 +24,13 @@ export function ActivityFeed({ events }: Props) {
 
   if (events.length === 0) {
     return (
-      <div className="flex items-center justify-center h-full">
-        <p className="text-zinc-500 text-sm">Waiting for agent activity...</p>
+      <div className="flex items-center justify-center h-full animate-fade-in">
+        <div className="text-center space-y-2">
+          <div className="w-8 h-8 rounded-full border border-zinc-800 flex items-center justify-center mx-auto mb-4">
+            <div className="w-1.5 h-1.5 rounded-full bg-zinc-800 animate-pulse" />
+          </div>
+          <p className="text-zinc-600 text-[10px] font-bold uppercase tracking-widest">Awaiting Telemetry</p>
+        </div>
       </div>
     );
   }
@@ -33,7 +38,7 @@ export function ActivityFeed({ events }: Props) {
   return (
     <div
       ref={scrollRef}
-      className="flex flex-col gap-1.5 p-3 overflow-y-auto h-full text-xs font-mono scrollbar-thin scrollbar-track-transparent scrollbar-thumb-zinc-700"
+      className="flex flex-col gap-3 p-4 overflow-y-auto h-full text-[11px] font-mono custom-scrollbar"
     >
       {events.map((event, i) => (
         <ActivityEntry key={`${event.timestamp}-${i}`} event={event} />
@@ -48,13 +53,14 @@ export function ActivityFeed({ events }: Props) {
 
 function ActivityEntry({ event }: { event: ActivityEvent }) {
   const time = new Date(event.timestamp).toLocaleTimeString([], {
+    hour12: false,
     hour: "2-digit",
     minute: "2-digit",
     second: "2-digit",
   });
 
   return (
-    <div className="animate-in fade-in duration-300 slide-in-from-bottom-1">
+    <div className="animate-fade-in">
       {(() => {
         switch (event.type) {
           case "agent_thinking":
@@ -93,9 +99,9 @@ function ActivityEntry({ event }: { event: ActivityEvent }) {
             );
           default:
             return (
-              <div className="text-zinc-500 px-2 py-1">
+              <div className="text-zinc-600 pl-2 border-l border-zinc-800">
                 <TimeStamp time={time} />
-                <span>{event.type}: {JSON.stringify(event)}</span>
+                <span>{event.type.toUpperCase()}: {JSON.stringify(event)}</span>
               </div>
             );
         }
@@ -105,31 +111,18 @@ function ActivityEntry({ event }: { event: ActivityEvent }) {
 }
 
 function TimeStamp({ time }: { time: string }) {
-  return <span className="text-zinc-600 mr-2 select-none">{time}</span>;
+  return <span className="text-zinc-700 mr-2 select-none font-bold">[{time}]</span>;
 }
 
 /* --- Brain icon: agent_thinking --- */
 function ThinkingEntry({ time, content }: { time: string; content: string }) {
   return (
-    <div className="flex items-start gap-2 text-zinc-400 italic pl-2 border-l-2 border-zinc-700 py-1">
-      <svg
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth={1.5}
-        className="w-4 h-4 shrink-0 mt-0.5 text-zinc-500"
-      >
-        <path
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          d="M9.75 3a3.75 3.75 0 0 0-2.4 6.63A4.5 4.5 0 0 0 3 14.25a4.5 4.5 0 0 0 4.5 4.5h.38A3 3 0 0 0 12 21a3 3 0 0 0 4.12-2.25h.38a4.5 4.5 0 0 0 4.5-4.5 4.5 4.5 0 0 0-4.35-4.62A3.75 3.75 0 0 0 14.25 3a3.75 3.75 0 0 0-2.25.75A3.73 3.73 0 0 0 9.75 3Z"
-        />
-        <path strokeLinecap="round" strokeLinejoin="round" d="M9 13h.01M15 13h.01M10 17s1 1 2 1 2-1 2-1" />
-      </svg>
-      <div>
+    <div className="flex flex-col gap-1 pl-3 border-l-2 border-zinc-800/50 py-1">
+      <div className="flex items-center gap-2">
         <TimeStamp time={time} />
-        <span>{content}</span>
+        <span className="text-zinc-500 font-bold uppercase tracking-tighter">Thinking</span>
       </div>
+      <span className="text-zinc-400 italic leading-relaxed">{content}</span>
     </div>
   );
 }
@@ -149,26 +142,17 @@ function ToolCallEntry({
     .join(", ");
 
   return (
-    <div className="flex items-start gap-2 bg-blue-950/30 border border-blue-800/25 rounded px-2 py-1.5">
-      <svg
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth={1.5}
-        className="w-4 h-4 shrink-0 mt-0.5 text-blue-400"
-      >
-        <path
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          d="M21.75 6.75a4.5 4.5 0 0 1-4.88 4.48l-7.12 7.12a2.25 2.25 0 1 1-3.18-3.18l7.12-7.12A4.5 4.5 0 0 1 18 3.75a4.5 4.5 0 0 1 3.75 3Z"
-        />
-        <path strokeLinecap="round" strokeLinejoin="round" d="m14.12 6 3.88 3.88" />
-      </svg>
+    <div className="bg-cyan-500/5 border border-cyan-500/10 rounded-lg p-2.5 space-y-1">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <TimeStamp time={time} />
+          <span className="text-cyan-500 font-black uppercase tracking-widest">Call</span>
+        </div>
+        <div className="w-1.5 h-1.5 rounded-full bg-cyan-500/40 animate-pulse" />
+      </div>
       <div className="min-w-0">
-        <TimeStamp time={time} />
-        <span className="text-blue-400 font-semibold">TOOL</span>{" "}
-        <span className="text-zinc-200">{tool}</span>
-        <span className="text-zinc-500 break-all">({argsStr})</span>
+        <span className="text-zinc-100 font-bold">{tool}</span>
+        <span className="text-zinc-500 ml-1.5 break-all">({argsStr})</span>
       </div>
     </div>
   );
@@ -187,21 +171,15 @@ function ToolResultEntry({
   const truncated = output.length > 200 ? output.slice(0, 200) + "..." : output;
 
   return (
-    <div className="flex items-start gap-2 bg-emerald-950/25 border border-emerald-800/20 rounded px-2 py-1.5">
-      <svg
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth={2}
-        className="w-4 h-4 shrink-0 mt-0.5 text-emerald-400"
-      >
-        <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-      </svg>
-      <div className="min-w-0">
+    <div className="bg-emerald-500/5 border border-emerald-500/10 rounded-lg p-2.5 space-y-1">
+      <div className="flex items-center gap-2">
         <TimeStamp time={time} />
-        <span className="text-emerald-400 font-semibold">RESULT</span>{" "}
-        <span className="text-zinc-400">{tool}:</span>{" "}
-        <span className="text-zinc-300 break-all">{truncated}</span>
+        <span className="text-emerald-500 font-black uppercase tracking-widest">Return</span>
+      </div>
+      <div className="min-w-0">
+        <span className="text-zinc-400 font-bold">{tool}</span>
+        <span className="text-zinc-500 mx-2">→</span>
+        <span className="text-zinc-300 break-all leading-relaxed font-light">{truncated}</span>
       </div>
     </div>
   );
@@ -220,53 +198,46 @@ function ScreenshotEntry({
   const [expanded, setExpanded] = useState(false);
 
   return (
-    <div className="bg-zinc-800/50 border border-zinc-700/40 rounded px-2 py-1.5">
-      <div className="flex items-start gap-2">
-        <svg
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth={1.5}
-          className="w-4 h-4 shrink-0 mt-0.5 text-amber-400"
-        >
-          <path
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            d="M6.827 6.175A2.31 2.31 0 0 1 5.186 7.23c-.38.054-.757.112-1.134.175C2.999 7.58 2.25 8.507 2.25 9.574V18a2.25 2.25 0 0 0 2.25 2.25h15A2.25 2.25 0 0 0 21.75 18V9.574c0-1.067-.75-1.994-1.802-2.169a47.9 47.9 0 0 0-1.134-.175 2.31 2.31 0 0 1-1.64-1.055l-.822-1.316A2.19 2.19 0 0 0 14.49 3.75h-4.979a2.19 2.19 0 0 0-1.862 1.054l-.823 1.316.001.005Z"
-          />
-          <path
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            d="M16.5 12.75a4.5 4.5 0 1 1-9 0 4.5 4.5 0 0 1 9 0Z"
-          />
-        </svg>
-        <div className="min-w-0">
-          <TimeStamp time={time} />
-          <span className="text-amber-400 font-semibold">SCREENSHOT</span>
-          {analysis && (
-            <span className="text-zinc-400 ml-1.5">{analysis.slice(0, 120)}</span>
-          )}
-        </div>
+    <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-2.5 space-y-2">
+      <div className="flex items-center gap-2">
+        <TimeStamp time={time} />
+        <span className="text-amber-500 font-black uppercase tracking-widest">Optic</span>
       </div>
+      
+      {analysis && (
+        <p className="text-zinc-400 leading-relaxed italic">{analysis}</p>
+      )}
 
       {imageB64 && (
-        <button
-          onClick={() => setExpanded(!expanded)}
-          className="mt-1.5 w-full text-left"
-        >
-          <img
-            src={`data:image/png;base64,${imageB64}`}
-            alt="Agent screenshot"
-            className={`rounded border border-zinc-700 bg-black transition-all duration-200 ${
-              expanded
-                ? "w-full max-h-96 object-contain"
-                : "w-full max-h-24 object-cover opacity-80 hover:opacity-100"
+        <div className="space-y-2">
+          <button
+            onClick={() => setExpanded(!expanded)}
+            className={`relative group w-full overflow-hidden rounded border border-zinc-800 bg-black transition-all duration-500 ${
+              expanded ? "max-h-[400px]" : "max-h-20"
             }`}
-          />
-          <span className="text-[10px] text-zinc-600 mt-0.5 block">
-            {expanded ? "Click to collapse" : "Click to expand"}
-          </span>
-        </button>
+          >
+            <img
+              src={`data:image/png;base64,${imageB64}`}
+              alt="Agent screenshot"
+              className={`w-full transition-all duration-500 object-contain ${
+                expanded ? "opacity-100" : "opacity-60 blur-[1px] group-hover:opacity-80 group-hover:blur-0"
+              }`}
+            />
+            {!expanded && (
+              <div className="absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity">
+                <span className="text-[9px] font-bold text-white uppercase tracking-widest">Expand Visual</span>
+              </div>
+            )}
+          </button>
+          <div className="flex justify-center">
+            <button 
+              onClick={() => setExpanded(!expanded)}
+              className="text-[9px] font-bold text-zinc-600 hover:text-zinc-400 uppercase tracking-widest transition-colors"
+            >
+              {expanded ? "Collapse Optic" : "View Telemetry"}
+            </button>
+          </div>
+        </div>
       )}
     </div>
   );
@@ -283,22 +254,13 @@ function ErrorEntry({
   code?: string;
 }) {
   return (
-    <div className="flex items-start gap-2 bg-red-950/30 border border-red-800/25 rounded px-2 py-1.5">
-      <svg
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth={2}
-        className="w-4 h-4 shrink-0 mt-0.5 text-red-400"
-      >
-        <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-      </svg>
-      <div className="min-w-0">
+    <div className="bg-red-500/5 border border-red-500/15 rounded-lg p-2.5 space-y-1">
+      <div className="flex items-center gap-2">
         <TimeStamp time={time} />
-        <span className="text-red-400 font-semibold">ERROR</span>
-        {code && <span className="text-red-500/70 ml-1">[{code}]</span>}{" "}
-        <span className="text-red-300 break-all">{message}</span>
+        <span className="text-red-500 font-black uppercase tracking-widest">Fault</span>
+        {code && <span className="text-[9px] bg-red-500/20 text-red-400 px-1.5 rounded ml-1 font-bold tracking-tighter">{code}</span>}
       </div>
+      <p className="text-red-400 font-medium leading-relaxed">{message}</p>
     </div>
   );
 }

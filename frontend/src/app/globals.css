@@ -1,15 +1,13 @@
 @import "tailwindcss";
 
 :root {
-  --background: #09090b;
-  --foreground: #fafafa;
-  --card: #18181b;
-  --card-border: #27272a;
-  --accent: #22d3ee;
-  --accent-dim: #0e7490;
-  --danger: #ef4444;
-  --success: #22c55e;
-  --muted: #71717a;
+  --background: #030303;
+  --foreground: #ffffff;
+  --card: #0a0a0a;
+  --card-border: #1a1a1a;
+  --accent: #00f2ff;
+  --accent-secondary: #00ff88;
+  --muted: #666666;
 }
 
 @theme inline {
@@ -19,32 +17,112 @@
   --font-mono: var(--font-geist-mono);
 }
 
-* {
-  scrollbar-width: thin;
-  scrollbar-color: #27272a transparent;
+/* Minimal Scrollbar */
+::-webkit-scrollbar {
+  width: 4px;
+  height: 4px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #222;
+  border-radius: 10px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #333;
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
   font-family: var(--font-sans, system-ui, sans-serif);
+  -webkit-font-smoothing: antialiased;
+  overflow-x: hidden;
 }
 
-/* Custom animations */
-@keyframes pulse-glow {
-  0%, 100% { box-shadow: 0 0 0 0 rgba(34, 211, 238, 0.4); }
-  50% { box-shadow: 0 0 0 8px rgba(34, 211, 238, 0); }
+/* Advanced Glassmorphism */
+.glass-panel {
+  background: rgba(10, 10, 10, 0.7);
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.8);
 }
 
-@keyframes fade-in {
-  from { opacity: 0; transform: translateY(4px); }
-  to { opacity: 1; transform: translateY(0); }
+.glass-card {
+  background: rgba(255, 255, 255, 0.03);
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  transition: all 0.4s cubic-bezier(0.22, 1, 0.36, 1);
 }
 
-.animate-pulse-glow {
-  animation: pulse-glow 2s infinite;
+.glass-card:hover {
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  transform: translateY(-4px);
 }
 
-.animate-fade-in {
-  animation: fade-in 0.2s ease-out;
+/* Typography Effects */
+.text-glow {
+  text-shadow: 0 0 20px rgba(0, 242, 255, 0.4);
+}
+
+.text-gradient {
+  background: linear-gradient(135deg, #fff 0%, #888 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.text-accent-gradient {
+  background: linear-gradient(135deg, #00f2ff 0%, #00ff88 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+/* Animations */
+@keyframes mesh-flow {
+  0% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+
+.animate-mesh {
+  background: linear-gradient(-45deg, #030303, #0a0a1a, #051a1a, #030303);
+  background-size: 400% 400%;
+  animation: mesh-flow 15s ease infinite;
+}
+
+@keyframes border-beam {
+  0% { offset-distance: 0%; }
+  100% { offset-distance: 100%; }
+}
+
+.border-beam-container {
+  position: relative;
+  overflow: hidden;
+}
+
+/* Custom transitions */
+.hover-reveal {
+  opacity: 0;
+  transform: translateY(10px);
+  transition: all 0.3s ease;
+}
+
+.group:hover .hover-reveal {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+@keyframes scan {
+  from { transform: translateY(-100%); }
+  to { transform: translateY(100%); }
+}
+
+.mask-radial {
+  mask-image: radial-gradient(circle at center, black, transparent 80%);
 }

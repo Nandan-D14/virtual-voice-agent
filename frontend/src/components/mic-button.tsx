@@ -41,46 +41,34 @@ export function MicButton({ isRecording, onStart, onStop, disabled }: Props) {
       aria-label={isRecording ? "Stop recording" : "Start recording"}
       className={`
         relative flex items-center justify-center
-        w-16 h-16 rounded-full
-        transition-all duration-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#22d3ee]/50
+        w-9 h-9 rounded-xl
+        transition-all duration-300 focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500/40
         ${
           disabled
-            ? "bg-[#18181b] border border-[#27272a] text-zinc-600 cursor-not-allowed opacity-50"
+            ? "bg-zinc-800/50 text-zinc-700 cursor-not-allowed"
             : isRecording
-              ? "bg-red-600 text-white shadow-[0_0_24px_rgba(239,68,68,0.45)] hover:bg-red-500"
-              : "bg-transparent border-2 border-zinc-500 text-zinc-400 hover:border-[#22d3ee] hover:text-[#22d3ee] hover:shadow-[0_0_16px_rgba(34,211,238,0.15)]"
+              ? "bg-red-500/20 text-red-400 border border-red-500/30 shadow-[0_0_20px_rgba(239,68,68,0.2)]"
+              : "bg-zinc-800 border border-zinc-700 text-zinc-400 hover:border-cyan-500/50 hover:text-cyan-400 active:scale-95"
         }
       `}
     >
-      {/* Pulsing glow ring when recording */}
+      {/* Recording indicator */}
       {isRecording && !disabled && (
-        <span className="absolute inset-0 rounded-full border-2 border-red-400 animate-ping opacity-30" />
+        <>
+          <span className="absolute inset-0 rounded-xl border border-red-500 animate-pulse" />
+          <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-red-500 rounded-full border-2 border-zinc-900" />
+        </>
       )}
 
       {isRecording ? (
-        /* Stop icon (square) */
-        <svg
-          viewBox="0 0 24 24"
-          fill="currentColor"
-          className="w-6 h-6"
-        >
-          <rect x="6" y="6" width="12" height="12" rx="2" />
+        <svg viewBox="0 0 24 24" fill="currentColor" className="w-4 h-4">
+          <rect x="6" y="6" width="12" height="12" rx="1.5" />
         </svg>
       ) : (
-        /* Microphone icon */
-        <svg
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth={2}
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          className="w-6 h-6"
-        >
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4">
           <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" />
           <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
           <line x1="12" y1="19" x2="12" y2="22" />
-          <line x1="8" y1="22" x2="16" y2="22" />
         </svg>
       )}
     </button>

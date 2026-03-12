@@ -24,25 +24,32 @@ export function ConversationPanel({ messages, isThinking = false }: Props) {
 
   if (messages.length === 0) {
     return (
-      <div className="flex items-center justify-center h-full px-6">
-        <div className="text-center">
-          {/* Waveform icon */}
-          <svg
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth={1.5}
-            className="w-10 h-10 mx-auto mb-3 text-zinc-600"
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              d="M12 1v22M8 5v14M4 9v6M16 5v14M20 9v6"
-            />
-          </svg>
-          <p className="text-zinc-500 text-sm">
-            Start speaking to interact with NEXUS
-          </p>
+      <div className="flex items-center justify-center h-full px-8 animate-fade-in">
+        <div className="text-center space-y-4">
+          <div className="relative inline-flex items-center justify-center">
+            <div className="absolute inset-0 bg-cyan-500/20 rounded-full blur-xl animate-pulse" />
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth={1.5}
+              className="relative w-12 h-12 text-zinc-700"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                d="M12 1v22M8 5v14M4 9v6M16 5v14M20 9v6"
+              />
+            </svg>
+          </div>
+          <div className="space-y-1">
+            <p className="text-zinc-400 text-xs font-bold uppercase tracking-widest">
+              Awaiting Input
+            </p>
+            <p className="text-zinc-600 text-[10px] max-w-[180px] mx-auto leading-relaxed uppercase tracking-wider">
+              Initialize communication via voice or text command.
+            </p>
+          </div>
         </div>
       </div>
     );
@@ -51,23 +58,27 @@ export function ConversationPanel({ messages, isThinking = false }: Props) {
   return (
     <div
       ref={scrollRef}
-      className="flex flex-col gap-3 p-4 overflow-y-auto h-full scrollbar-thin scrollbar-track-transparent scrollbar-thumb-zinc-700"
+      className="flex flex-col gap-6 p-6 overflow-y-auto h-full custom-scrollbar"
     >
       {messages.map((msg, i) => (
         <div
           key={i}
-          className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}
+          className={`flex flex-col ${msg.role === "user" ? "items-end" : "items-start"} animate-fade-in`}
         >
+          <div className="flex items-center gap-2 mb-2 px-1">
+            <span className={`text-[9px] font-black uppercase tracking-[0.2em] ${msg.role === "user" ? "text-cyan-500" : "text-emerald-500"}`}>
+              {msg.role === "user" ? "Protocol: User" : "Source: NEXUS"}
+            </span>
+            <div className={`w-1 h-1 rounded-full ${msg.role === "user" ? "bg-cyan-500/40" : "bg-emerald-500/40"}`} />
+          </div>
+          
           <div
-            className={`max-w-[80%] px-3.5 py-2.5 rounded-2xl text-sm leading-relaxed ${
+            className={`max-w-full px-4 py-3 rounded-2xl text-sm leading-relaxed transition-all duration-300 ${
               msg.role === "user"
-                ? "bg-[#22d3ee]/15 text-[#22d3ee] border border-[#22d3ee]/20 rounded-br-md"
-                : "bg-[#27272a] text-zinc-200 rounded-bl-md"
+                ? "bg-cyan-500/5 text-cyan-50 border border-cyan-500/20 rounded-tr-none shadow-lg shadow-cyan-500/5"
+                : "bg-zinc-900 text-zinc-200 border border-zinc-800 rounded-tl-none"
             }`}
           >
-            <span className="block text-[10px] font-semibold uppercase tracking-wider opacity-50 mb-1">
-              {msg.role === "user" ? "You" : "NEXUS"}
-            </span>
             {msg.text}
           </div>
         </div>
@@ -75,17 +86,23 @@ export function ConversationPanel({ messages, isThinking = false }: Props) {
 
       {/* Thinking indicator */}
       {isThinking && (
-        <div className="flex justify-start">
-          <div className="max-w-[80%] px-3.5 py-2.5 rounded-2xl rounded-bl-md bg-[#27272a] text-zinc-200">
-            <span className="block text-[10px] font-semibold uppercase tracking-wider opacity-50 mb-1">
-              NEXUS
+        <div className="flex flex-col items-start animate-fade-in">
+          <div className="flex items-center gap-2 mb-2 px-1">
+            <span className="text-[9px] font-black text-emerald-500 uppercase tracking-[0.2em]">
+              Source: NEXUS
             </span>
+            <div className="w-1 h-1 rounded-full bg-emerald-500/40" />
+          </div>
+          
+          <div className="px-4 py-3 rounded-2xl rounded-tl-none bg-zinc-900 border border-zinc-800 flex items-center gap-3">
             <div className="flex items-center gap-1">
-              <span className="w-2 h-2 rounded-full bg-[#22d3ee] animate-bounce [animation-delay:0ms]" />
-              <span className="w-2 h-2 rounded-full bg-[#22d3ee] animate-bounce [animation-delay:150ms]" />
-              <span className="w-2 h-2 rounded-full bg-[#22d3ee] animate-bounce [animation-delay:300ms]" />
-              <span className="text-xs text-zinc-500 ml-2">Thinking...</span>
+              <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-bounce [animation-delay:0ms]" />
+              <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-bounce [animation-delay:150ms]" />
+              <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-bounce [animation-delay:300ms]" />
             </div>
+            <span className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">
+              Neural Processing...
+            </span>
           </div>
         </div>
       )}

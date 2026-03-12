@@ -8,10 +8,10 @@ type Props = {
 };
 
 const STEPS: { key: Phase; label: string }[] = [
-  { key: "listening", label: "LISTENING" },
-  { key: "thinking", label: "THINKING" },
-  { key: "acting", label: "ACTING" },
-  { key: "done", label: "DONE" },
+  { key: "listening", label: "Mic" },
+  { key: "thinking", label: "Neural" },
+  { key: "acting", label: "Kernel" },
+  { key: "done", label: "Sync" },
 ];
 
 const STEP_ORDER: Phase[] = ["listening", "thinking", "acting", "done"];
@@ -30,81 +30,76 @@ function getStepState(
 
 export function StatusBar({ phase, isConnected }: Props) {
   return (
-    <div className="flex items-center justify-between px-4 py-2.5 bg-[#18181b] border-t border-[#27272a] text-xs">
+    <div className="flex items-center justify-between px-6 py-2 bg-zinc-950 border-t border-zinc-800 text-[10px] font-bold uppercase tracking-[0.15em] glass relative z-30">
       {/* Phase steps */}
-      <div className="flex items-center gap-1">
-        {STEPS.map((step, i) => {
-          const state = getStepState(step.key, phase);
+      <div className="flex items-center gap-6">
+        <div className="flex items-center gap-2 text-zinc-500 mr-2">
+          <div className="w-1 h-1 bg-zinc-700" />
+          <span>Systems</span>
+        </div>
+        
+        <div className="flex items-center gap-4">
+          {STEPS.map((step) => {
+            const state = getStepState(step.key, phase);
 
-          return (
-            <div key={step.key} className="flex items-center">
-              {/* Connector line (between steps) */}
-              {i > 0 && (
+            return (
+              <div key={step.key} className="flex items-center gap-2">
                 <div
-                  className={`w-6 h-px mx-1 transition-colors duration-300 ${
-                    state === "future" ? "bg-zinc-700" : "bg-zinc-500"
+                  className={`h-1 w-3 transition-all duration-500 rounded-full ${
+                    state === "active"
+                      ? "bg-cyan-500 shadow-[0_0_8px_rgba(34,211,238,0.5)] w-5"
+                      : state === "past"
+                        ? "bg-emerald-500/40"
+                        : "bg-zinc-800"
                   }`}
                 />
-              )}
-
-              {/* Step dot + label */}
-              <div className="flex items-center gap-1.5">
                 <span
-                  className={`relative flex h-2 w-2 transition-colors duration-300 ${
-                    state === "active" ? "" : ""
-                  }`}
-                >
-                  {state === "active" && (
-                    <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-[#22d3ee] opacity-60" />
-                  )}
-                  <span
-                    className={`relative inline-flex h-2 w-2 rounded-full transition-colors duration-300 ${
-                      state === "active"
-                        ? "bg-[#22d3ee]"
-                        : state === "past"
-                          ? "bg-emerald-500"
-                          : "bg-zinc-600"
-                    }`}
-                  />
-                </span>
-                <span
-                  className={`font-semibold tracking-wide transition-colors duration-300 ${
+                  className={`transition-colors duration-300 ${
                     state === "active"
-                      ? "text-[#22d3ee]"
+                      ? "text-cyan-400"
                       : state === "past"
-                        ? "text-emerald-500"
-                        : "text-zinc-600"
+                        ? "text-emerald-500/60"
+                        : "text-zinc-700"
                   }`}
                 >
                   {step.label}
                 </span>
               </div>
-            </div>
-          );
-        })}
+            );
+          })}
+        </div>
       </div>
 
-      {/* Connection indicator */}
-      <div className="flex items-center gap-1.5">
-        <span
-          className={`relative flex h-2 w-2`}
-        >
-          {isConnected && (
-            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-50" />
-          )}
-          <span
-            className={`relative inline-flex h-2 w-2 rounded-full ${
-              isConnected ? "bg-emerald-500" : "bg-red-500"
-            }`}
-          />
-        </span>
-        <span
-          className={`font-medium ${
-            isConnected ? "text-emerald-400" : "text-red-400"
-          }`}
-        >
-          {isConnected ? "Connected" : "Disconnected"}
-        </span>
+      {/* Stats/Connection */}
+      <div className="flex items-center gap-6">
+        <div className="hidden md:flex items-center gap-4 text-zinc-600 border-r border-zinc-800 pr-6">
+          <div className="flex items-center gap-1.5">
+            <span className="text-[9px]">LATENCY</span>
+            <span className="text-zinc-400">24MS</span>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <span className="text-[9px]">UPTIME</span>
+            <span className="text-zinc-400">00:12:45</span>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-2.5">
+          <div className="flex flex-col items-end gap-0.5">
+            <span className={`leading-none ${isConnected ? "text-emerald-500" : "text-red-500"}`}>
+              {isConnected ? "Link Established" : "Link Severed"}
+            </span>
+          </div>
+          <div className="relative flex h-2 w-2">
+            {isConnected && (
+              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-500 opacity-20" />
+            )}
+            <div
+              className={`h-2 w-2 rounded-full border border-black/20 ${
+                isConnected ? "bg-emerald-500" : "bg-red-500"
+              }`}
+            />
+          </div>
+        </div>
       </div>
     </div>
   );
