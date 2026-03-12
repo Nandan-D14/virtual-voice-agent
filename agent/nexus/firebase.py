@@ -16,7 +16,7 @@ def get_firebase_app():
     """Initialize Firebase Admin once using ADC or emulator config."""
     apply_runtime_env_overrides()
 
-    project_id = settings.firebase_project_id or settings.google_project_id
+    project_id = settings.firebase_project_id
     if not project_id:
         raise RuntimeError("Firebase project ID is not configured")
 

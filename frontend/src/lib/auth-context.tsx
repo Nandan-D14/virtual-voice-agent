@@ -23,7 +23,7 @@ import {
   type ReactNode,
 } from "react";
 
-import { auth, db } from "@/lib/firebase-client";
+import { auth, db, isRecoverableFirestoreError } from "@/lib/firebase-client";
 
 export type AppUser = {
   uid: string;
@@ -76,6 +76,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (firebaseUser) {
         setUser(mapUser(firebaseUser));
         void syncUserProfile(firebaseUser).catch((err) => {
+          if (isRecoverableFirestoreError(err)) {
+            return;
+          }
           console.error("[AuthProvider] Failed to sync user profile", err);
         });
       } else {

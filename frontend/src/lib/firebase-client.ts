@@ -1,6 +1,12 @@
 "use client";
 
-import { getApp, getApps, initializeApp, type FirebaseApp } from "firebase/app";
+import {
+  FirebaseError,
+  getApp,
+  getApps,
+  initializeApp,
+  type FirebaseApp,
+} from "firebase/app";
 import { connectAuthEmulator, getAuth } from "firebase/auth";
 import { connectFirestoreEmulator, getFirestore } from "firebase/firestore";
 
@@ -34,6 +40,19 @@ const app: FirebaseApp =
 
 export const auth = getAuth(app);
 export const db = getFirestore(app);
+
+const recoverableFirestoreErrorCodes = new Set([
+  "unavailable",
+  "failed-precondition",
+  "deadline-exceeded",
+]);
+
+export function isRecoverableFirestoreError(error: unknown): boolean {
+  return (
+    error instanceof FirebaseError &&
+    recoverableFirestoreErrorCodes.has(error.code.replace(/^firestore\//, ""))
+  );
+}
 
 if (typeof window !== "undefined" && emulatorFlag) {
   const scope = globalThis as typeof globalThis & {

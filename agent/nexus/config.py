@@ -1,13 +1,22 @@
 """Application configuration via environment variables."""
 
 import os
+from pathlib import Path
+
+
+MODULE_DIR = Path(__file__).resolve().parent
+AGENT_DIR = MODULE_DIR.parent
+WORKSPACE_DIR = AGENT_DIR.parent
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
-        env_file=".env",
+        env_file=(
+            str(WORKSPACE_DIR / ".env"),
+            str(AGENT_DIR / ".env"),
+        ),
         env_file_encoding="utf-8",
         extra="ignore",
     )
