@@ -1,20 +1,31 @@
 "use client";
 
-import { useParams, useSearchParams, useRouter } from "next/navigation";
-import { useEffect, useRef, useState, useCallback } from "react";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 
-import { useSession } from "@/lib/use-session";
-import { useWebSocket } from "@/lib/use-websocket";
-import { useMicrophone } from "@/lib/use-microphone";
-import { AudioPlayer } from "@/lib/audio-playback";
-import type { WsMessage, SessionPhase } from "@/lib/message-types";
-
-import { DesktopPanel } from "@/components/desktop-panel";
-import { ConversationPanel } from "@/components/conversation-panel";
 import { ActivityFeed } from "@/components/activity-feed";
+import { ConversationPanel } from "@/components/conversation-panel";
+import { DemoPicker } from "@/components/demo-picker";
+import { DesktopPanel } from "@/components/desktop-panel";
 import { MicButton } from "@/components/mic-button";
 import { StatusBar } from "@/components/status-bar";
-import { DemoPicker } from "@/components/demo-picker";
+import { useAuth } from "@/lib/auth-context";
+import { AudioPlayer } from "@/lib/audio-playback";
+import { listArchivedMessages } from "@/lib/firestore-history";
+import type {
+  SessionData,
+  SessionInfo,
+  SessionPhase,
+  WsMessage,
+} from "@/lib/message-types";
+import { useMicrophone } from "@/lib/use-microphone";
+import { useSession } from "@/lib/use-session";
+import { useWebSocket } from "@/lib/use-websocket";
 
 type Message = { role: "user" | "agent"; text: string };
 type ActivityEvent = { type: string; timestamp: number; [key: string]: unknown };
@@ -24,53 +35,42 @@ export default function SessionPage() {
   const searchParams = useSearchParams();
   const router = useRouter();
   const sessionId = params.id as string;
+  const { user, isLoading: authLoading } = useAuth();
+  const { getSession, refreshTicket, destroySession, isLoading, error } =
+    useSession();
 
-  // Session data
-  const { session, destroySession } = useSession();
-  const [streamUrl, setStreamUrl] = useState<string | null>(
-    session?.stream_url ?? null
-  );
+  const [sessionInfo, setSessionInfo] = useState<SessionInfo | null>(null);
+  const [sessionData, setSessionData] = useState<SessionData | null>(null);
+  const [viewMode, setViewMode] = useState<"live" | "archived">("live");
+  const [pageError, setPageError] = useState<string | null>(null);
+  const [streamUrl, setStreamUrl] = useState<string | null>(null);
   const [phase, setPhase] = useState<SessionPhase>("idle");
-
-  // Chat state
   const [messages, setMessages] = useState<Message[]>([]);
   const [events, setEvents] = useState<ActivityEvent[]>([]);
-
-  // Text input
   const [textInput, setTextInput] = useState("");
 
-  // Derived: agent is busy (thinking or acting)
-  const isBusy = phase === "thinking" || phase === "acting";
-
-  // Audio player
   const audioPlayer = useRef(new AudioPlayer());
 
-  // WebSocket
   const wsUrl =
     typeof window !== "undefined"
-      ? `${window.location.protocol === "https:" ? "wss:" : "ws:"}//${process.env.NEXT_PUBLIC_AGENT_WS_URL?.replace(/^wss?:\/\//, "") || "localhost:8000"}/ws/${sessionId}?ticket=${session?.ws_ticket || ""}`
+      ? `${window.location.protocol === "https:" ? "wss:" : "ws:"}//${process.env.NEXT_PUBLIC_AGENT_WS_URL?.replace(/^wss?:\/\//, "") || "localhost:8000"}/ws/${sessionId}?ticket=${sessionData?.ws_ticket || ""}`
       : null;
 
   const { sendBinary, sendJson, lastMessage, isConnected, onBinaryMessageRef } =
-    useWebSocket(session?.ws_ticket ? wsUrl : null);
+    useWebSocket(viewMode === "live" && sessionData?.ws_ticket ? wsUrl : null);
 
-  // Microphone
-  const { start: startMic, stop: stopMic, isRecording } = useMicrophone(sendBinary);
+  const { start: startMic, stop: stopMic, isRecording } =
+    useMicrophone(sendBinary);
 
-  // Audio playback for incoming binary frames
   useEffect(() => {
     onBinaryMessageRef.current = (data: ArrayBuffer) => {
       audioPlayer.current.play(data);
     };
   }, [onBinaryMessageRef]);
 
-  // Process incoming WS messages
-  useEffect(() => {
-    if (!lastMessage) return;
-    const msg = lastMessage;
-
-    const addEvent = (m: WsMessage) => {
-      queueMicrotask(() => setEvents((prev) => [...prev, { ...m, timestamp: Date.now() }]));
+  const handleLastMessage = useCallback((msg: WsMessage) => {
+    const addEvent = (message: WsMessage) => {
+      setEvents((prev) => [...prev, { ...message, timestamp: Date.now() }]);
     };
 
     switch (msg.type) {
@@ -78,20 +78,18 @@ export default function SessionPage() {
         addEvent(msg);
         break;
       case "vnc_url":
-        queueMicrotask(() => setStreamUrl(msg.url));
+        setStreamUrl(msg.url);
         break;
       case "transcript":
-        queueMicrotask(() => {
-          setMessages((prev) => [...prev, { role: msg.role, text: msg.text }]);
-          if (msg.role === "agent") setPhase("done");
-        });
+        setMessages((prev) => [...prev, { role: msg.role, text: msg.text }]);
+        if (msg.role === "agent") setPhase("done");
         break;
       case "agent_thinking":
-        queueMicrotask(() => setPhase("thinking"));
+        setPhase("thinking");
         addEvent(msg);
         break;
       case "agent_tool_call":
-        queueMicrotask(() => setPhase("acting"));
+        setPhase("acting");
         addEvent(msg);
         break;
       case "agent_tool_result":
@@ -101,17 +99,125 @@ export default function SessionPage() {
         addEvent(msg);
         break;
       case "agent_complete":
-        queueMicrotask(() => setPhase("done"));
+        setPhase("done");
         addEvent(msg);
         break;
       case "error":
+        setPageError(msg.message);
         addEvent(msg);
         break;
+      case "pong":
+        break;
     }
-  }, [lastMessage]);
+  // State setters from useState are stable references — no deps needed.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
-  // Handle mic toggle
+  useEffect(() => {
+    if (!lastMessage) return;
+    handleLastMessage(lastMessage);
+  }, [lastMessage, handleLastMessage]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadSessionState() {
+      if (authLoading) return;
+      if (!user) {
+        router.push("/");
+        return;
+      }
+
+      setPageError(null);
+      setPhase("idle");
+      setEvents([]);
+      setMessages([]);
+      setStreamUrl(null);
+      setSessionData(null);
+      setSessionInfo(null);
+
+      const info = await getSession(sessionId);
+      if (cancelled) return;
+      if (!info) {
+        setPageError("Session not found");
+        return;
+      }
+
+      setSessionInfo(info);
+
+      if (!info.is_live) {
+        try {
+          const archivedMessages = await listArchivedMessages(sessionId);
+          if (!cancelled) {
+            setViewMode("archived");
+            setMessages(
+              archivedMessages.map((message) => ({
+                role: message.role,
+                text: message.text,
+              })),
+            );
+            setPhase("done");
+          }
+        } catch (err) {
+          if (!cancelled) {
+            setPageError(
+              err instanceof Error
+                ? err.message
+                : "Failed to load archived messages",
+            );
+          }
+        }
+        return;
+      }
+
+      const wsTicket = await refreshTicket(sessionId);
+      if (!wsTicket || cancelled) {
+        try {
+          const archivedMessages = await listArchivedMessages(sessionId);
+          if (!cancelled) {
+            setViewMode("archived");
+            setMessages(
+              archivedMessages.map((message) => ({
+                role: message.role,
+                text: message.text,
+              })),
+            );
+            setPhase("done");
+          }
+        } catch (err) {
+          if (!cancelled) {
+            setPageError(
+              err instanceof Error
+                ? err.message
+                : "Failed to load archived messages",
+            );
+          }
+        }
+        return;
+      }
+
+      if (!cancelled) {
+        setViewMode("live");
+        setSessionData({
+          session_id: info.session_id,
+          stream_url: info.stream_url || "",
+          ws_ticket: wsTicket,
+          status: info.status,
+          created_at: info.created_at,
+        });
+        setStreamUrl(info.stream_url);
+      }
+    }
+
+    void loadSessionState();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [authLoading, getSession, refreshTicket, router, sessionId, user]);
+
   const toggleMic = useCallback(() => {
+    if (viewMode !== "live") return;
     if (isRecording) {
       stopMic();
       setPhase("thinking");
@@ -119,181 +225,172 @@ export default function SessionPage() {
       startMic();
       setPhase("listening");
     }
-  }, [isRecording, startMic, stopMic]);
+  }, [isRecording, startMic, stopMic, viewMode]);
 
-  // Handle text submit
   const handleTextSubmit = useCallback(() => {
+    if (viewMode !== "live") return;
     const text = textInput.trim();
     if (!text) return;
     sendJson({ type: "text_input", text });
     setTextInput("");
     setPhase("thinking");
-  }, [textInput, sendJson]);
+  }, [sendJson, textInput, viewMode]);
 
-  // Handle demo selection
   const handleDemo = useCallback(
     (text: string) => {
+      if (viewMode !== "live") return;
       sendJson({ type: "text_input", text });
       setPhase("thinking");
     },
-    [sendJson]
+    [sendJson, viewMode],
   );
 
-  // Auto-send demo command from URL params
   useEffect(() => {
     const demo = searchParams.get("demo");
-    if (demo && isConnected) {
+    if (demo && isConnected && viewMode === "live") {
       const timer = setTimeout(() => handleDemo(demo), 1500);
       return () => clearTimeout(timer);
     }
-  }, [isConnected, searchParams, handleDemo]);
+  }, [handleDemo, isConnected, searchParams, viewMode]);
 
-  // Handle end session
   const handleEnd = async () => {
     audioPlayer.current.stop();
     stopMic();
-    await destroySession();
+    if (viewMode === "live") {
+      try {
+        await destroySession(sessionId);
+      } catch (err) {
+        console.error("[handleEnd] Failed to destroy session:", err);
+      }
+    }
     router.push("/");
   };
 
   return (
-    <div className="relative h-screen flex flex-col overflow-hidden bg-[#09090b] text-[#fafafa]">
-      {/* Background Decor */}
-      <div className="absolute inset-0 pointer-events-none">
-        <div className="absolute top-0 right-0 w-[500px] h-[500px] bg-cyan-500/5 rounded-full blur-[100px]" />
-        <div className="absolute bottom-0 left-0 w-[500px] h-[500px] bg-emerald-500/5 rounded-full blur-[100px]" />
-      </div>
-
-      {/* Top bar */}
-      <header className="relative z-20 flex items-center justify-between px-6 py-3 border-b border-zinc-800 glass">
-        <div className="flex items-center gap-6">
-          <div className="flex items-center gap-2">
-            <h1 className="text-xl font-black tracking-tighter italic">
-              <span className="text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-emerald-400">
-                NEXUS
-              </span>
-            </h1>
-            <div className="h-4 w-[1px] bg-zinc-800" />
-            <span className="text-[10px] font-bold text-zinc-500 uppercase tracking-[0.2em]">
-              Agent Workspace
+    <div className="h-screen flex flex-col overflow-hidden">
+      <header className="flex items-center justify-between px-4 py-2 border-b border-[#27272a] bg-[#18181b]">
+        <div className="flex items-center gap-3">
+          <h1 className="text-lg font-bold tracking-tight">
+            <span className="text-[#22d3ee]">NEXUS</span>
+          </h1>
+          {viewMode === "live" && isConnected && (
+            <span className="flex items-center gap-1.5 text-xs text-emerald-400">
+              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+              LIVE
             </span>
-          </div>
-
-          {isConnected && (
-            <div className="flex items-center gap-2 px-2.5 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/20">
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-              <span className="text-[10px] font-bold text-emerald-400 uppercase tracking-wider">
-                Connection Stable
-              </span>
-            </div>
+          )}
+          {viewMode === "archived" && (
+            <span className="rounded-full border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-[11px] uppercase tracking-wider text-amber-300">
+              Archived
+            </span>
           )}
         </div>
-
         <button
           onClick={handleEnd}
-          className="group flex items-center gap-2 px-4 py-1.5 rounded-xl border border-red-500/30 text-red-400 hover:bg-red-500 hover:text-white transition-all duration-300 text-xs font-bold uppercase tracking-wider active:scale-95 shadow-lg shadow-red-500/5"
+          className="text-xs px-3 py-1.5 rounded-lg border border-red-500/30 text-red-400 hover:bg-red-500/10 transition"
         >
-          Termination
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round" className="w-3.5 h-3.5 group-hover:rotate-90 transition-transform">
-            <line x1="18" y1="6" x2="6" y2="18" />
-            <line x1="6" y1="6" x2="18" y2="18" />
-          </svg>
+          {viewMode === "live" ? "End Session" : "Back Home"}
         </button>
       </header>
 
-      {/* Main 3-panel layout */}
-      <div className="relative z-10 flex-1 flex overflow-hidden">
-        {/* Left: Activity Feed */}
-        <aside className="w-80 border-r border-zinc-800 flex flex-col overflow-hidden bg-zinc-950/40">
-          <div className="px-4 py-3 border-b border-zinc-800/50 flex items-center justify-between">
-            <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-[0.2em]">
-              Activity Log
-            </span>
-            <div className="w-1.5 h-1.5 rounded-full bg-zinc-700" />
+      <div className="flex-1 flex overflow-hidden">
+        <div className="w-72 border-r border-[#27272a] flex flex-col overflow-hidden">
+          <div className="px-3 py-2 border-b border-[#27272a] text-xs font-medium text-zinc-400 uppercase tracking-wider">
+            Activity
           </div>
-          <div className="flex-1 overflow-y-auto custom-scrollbar">
-            <ActivityFeed events={events} />
+          <div className="flex-1 overflow-y-auto">
+            <ActivityFeed
+              events={events}
+              emptyState={
+                viewMode === "archived"
+                  ? "This session is archived. Live activity is unavailable."
+                  : "Waiting for agent activity..."
+              }
+            />
           </div>
-        </aside>
+        </div>
 
-        {/* Center: Desktop + Input */}
-        <main className="flex-1 flex flex-col overflow-hidden">
-          {/* Desktop viewer */}
-          <div className="flex-1 p-4 overflow-hidden">
-            <div className="h-full rounded-2xl border border-zinc-800 bg-black overflow-hidden shadow-2xl shadow-black/50 transition-all">
+        <div className="flex-1 flex flex-col overflow-hidden">
+          <div className="flex-1 p-2 overflow-hidden">
+            {viewMode === "live" ? (
               <DesktopPanel streamUrl={streamUrl} />
-            </div>
-          </div>
-
-          {/* Controls Area */}
-          <div className="px-4 pb-4 space-y-4">
-            {/* Demo picker (show when idle and no messages sent yet) */}
-            {messages.length === 0 && events.length === 0 && isConnected && (
-              <div className="animate-fade-in">
-                <div className="flex items-center gap-4 mb-3">
-                  <div className="h-[1px] flex-1 bg-zinc-800/50" />
-                  <span className="text-[9px] font-bold text-zinc-600 uppercase tracking-[0.2em]">Quick Deployment</span>
-                  <div className="h-[1px] flex-1 bg-zinc-800/50" />
-                </div>
-                <DemoPicker onSelect={handleDemo} disabled={!isConnected} />
+            ) : (
+              <div className="flex h-full flex-col items-center justify-center rounded-lg border border-[#27272a] bg-[#18181b] p-8 text-center">
+                <p className="text-lg font-semibold text-zinc-100">
+                  Archived session
+                </p>
+                <p className="mt-2 max-w-md text-sm text-zinc-500">
+                  The live desktop is no longer attached. You can still review
+                  the saved transcript stored in Firestore.
+                </p>
+                {sessionInfo?.summary && (
+                  <p className="mt-4 max-w-lg rounded-xl border border-[#27272a] bg-[#111113] px-4 py-3 text-sm text-zinc-300">
+                    {sessionInfo.summary}
+                  </p>
+                )}
               </div>
             )}
+          </div>
 
-            {/* Input bar */}
-            <div className="p-2 rounded-2xl bg-zinc-900/50 border border-zinc-800 flex items-center gap-3 glass shadow-lg">
+          {viewMode === "live" && events.length === 0 && isConnected && (
+            <div className="px-4 pb-2">
+              <DemoPicker onSelect={handleDemo} disabled={!isConnected} />
+            </div>
+          )}
+
+          {viewMode === "live" ? (
+            <div className="px-4 py-2 border-t border-[#27272a] flex items-center gap-2">
               <input
                 type="text"
                 value={textInput}
                 onChange={(e) => setTextInput(e.target.value)}
                 onKeyDown={(e) => e.key === "Enter" && handleTextSubmit()}
-                placeholder={isBusy ? "NEXUS is processing..." : "Initialize mission command..."}
-                disabled={!isConnected || isBusy}
-                className="flex-1 bg-transparent px-4 py-2 text-sm text-zinc-100 placeholder:text-zinc-600 focus:outline-none disabled:opacity-40 disabled:cursor-not-allowed font-medium"
+                placeholder="Type a command..."
+                className="flex-1 bg-[#18181b] border border-[#27272a] rounded-lg px-3 py-2 text-sm text-white placeholder:text-zinc-600 focus:outline-none focus:border-[#22d3ee]/50"
               />
-              
-              <div className="h-6 w-[1px] bg-zinc-800" />
-              
-              <button
-                type="button"
-                onClick={handleTextSubmit}
-                disabled={!isConnected || isBusy || !textInput.trim()}
-                className="px-5 py-2 rounded-xl bg-cyan-500 text-black text-xs font-black uppercase tracking-wider hover:bg-cyan-400 transition-all disabled:opacity-20 disabled:cursor-not-allowed active:scale-95 shadow-lg shadow-cyan-500/10"
-              >
-                Send
-              </button>
-              
               <MicButton
                 isRecording={isRecording}
                 onStart={toggleMic}
                 onStop={toggleMic}
-                disabled={!isConnected || isBusy}
+                disabled={!isConnected}
               />
             </div>
-          </div>
-        </main>
-
-        {/* Right: Conversation */}
-        <aside className="w-80 border-l border-zinc-800 flex flex-col overflow-hidden bg-zinc-950/40">
-          <div className="px-4 py-3 border-b border-zinc-800/50 flex items-center justify-between">
-            <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-[0.2em]">
-              Intelligence
-            </span>
-            <div className="flex gap-1">
-              <div className="w-1 h-1 rounded-full bg-cyan-500/40" />
-              <div className="w-1 h-1 rounded-full bg-cyan-500/40" />
-              <div className="w-1 h-1 rounded-full bg-cyan-500/40" />
+          ) : (
+            <div className="border-t border-[#27272a] px-4 py-3 text-sm text-zinc-500">
+              Archived sessions are read-only. Start a new session from the home
+              page to launch a fresh live desktop.
             </div>
+          )}
+        </div>
+
+        <div className="w-80 border-l border-[#27272a] flex flex-col overflow-hidden">
+          <div className="px-3 py-2 border-b border-[#27272a] text-xs font-medium text-zinc-400 uppercase tracking-wider">
+            Conversation
           </div>
-          <div className="flex-1 overflow-y-auto custom-scrollbar">
-            <ConversationPanel messages={messages} isThinking={isBusy} />
+          <div className="flex-1 overflow-y-auto">
+            <ConversationPanel
+              messages={messages}
+              emptyState={
+                viewMode === "archived"
+                  ? "No saved transcript was found for this session."
+                  : "Start speaking to interact with NEXUS"
+              }
+            />
           </div>
-        </aside>
+        </div>
       </div>
 
-      {/* Status bar */}
-      <footer className="relative z-20">
-        <StatusBar phase={phase} isConnected={isConnected} />
-      </footer>
+      <StatusBar phase={phase} isConnected={viewMode === "live" && isConnected} />
+      {(pageError || error) && (
+        <div className="border-t border-red-500/20 bg-red-950/20 px-4 py-2 text-sm text-red-300">
+          {pageError || error}
+        </div>
+      )}
+      {isLoading && (
+        <div className="border-t border-[#27272a] bg-[#111113] px-4 py-2 text-sm text-zinc-500">
+          Loading session...
+        </div>
+      )}
     </div>
   );
 }

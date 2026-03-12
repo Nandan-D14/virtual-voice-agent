@@ -1,14 +1,26 @@
 "use client";
 
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useSession } from "@/lib/use-session";
 import { DemoPicker } from "@/components/demo-picker";
 import { useState, useEffect } from "react";
 import { motion, useScroll, useTransform, useSpring, AnimatePresence } from "framer-motion";
+import { useAuth } from "@/lib/auth-context";
+import { listRecentSessions } from "@/lib/firestore-history";
+import type { RecentSession } from "@/lib/message-types";
 
 export default function HomePage() {
   const router = useRouter();
   const { createSession, isLoading, error } = useSession();
+  const {
+    user,
+    isLoading: authLoading,
+    error: authError,
+    signInWithGoogle,
+    signOutUser,
+  } = useAuth();
+  const [recentSessions, setRecentSessions] = useState<RecentSession[]>([]);
   const [scrolled, setScrolled] = useState(false);
   const { scrollYProgress } = useScroll();
   const scaleX = useSpring(scrollYProgress, {
@@ -23,7 +35,21 @@ export default function HomePage() {
     return () => window.removeEventListener("scroll", handleScroll);
   }, []);
 
+  useEffect(() => {
+    let cancelled = false;
+    async function loadRecentSessions() {
+      if (!user) { setRecentSessions([]); return; }
+      try {
+        const sessions = await listRecentSessions(user.uid);
+        if (!cancelled) setRecentSessions(sessions);
+      } catch { /* ignore */ }
+    }
+    void loadRecentSessions();
+    return () => { cancelled = true; };
+  }, [user]);
+
   const handleStart = async (demoCommand?: string) => {
+    if (!user) return;
     const session = await createSession();
     if (session) {
       const params = demoCommand
@@ -84,15 +110,40 @@ export default function HomePage() {
             ))}
           </div>
 
-          <motion.button 
+          <motion.div
             initial={{ opacity: 0, x: 20 }}
             animate={{ opacity: 1, x: 0 }}
-            onClick={() => handleStart()}
-            disabled={isLoading}
-            className="px-6 py-2.5 rounded-full bg-white text-black text-[11px] font-black uppercase tracking-widest hover:bg-cyan-400 transition-all active:scale-95 disabled:opacity-50 shadow-xl shadow-white/5"
+            className="flex items-center gap-4"
           >
-            {isLoading ? "Booting..." : "Launch Console"}
-          </motion.button>
+            {user ? (
+              <>
+                <span className="hidden md:inline text-[10px] font-bold text-zinc-400 uppercase tracking-widest truncate max-w-[120px]">
+                  {user.displayName || user.email}
+                </span>
+                <button
+                  onClick={() => { void signOutUser().catch(() => {}); }}
+                  className="px-4 py-2 rounded-full bg-white/5 border border-white/10 text-[10px] font-bold uppercase tracking-widest text-zinc-400 hover:text-white hover:border-white/20 transition-all"
+                >
+                  Sign out
+                </button>
+                <button
+                  onClick={() => handleStart()}
+                  disabled={isLoading}
+                  className="px-6 py-2.5 rounded-full bg-white text-black text-[11px] font-black uppercase tracking-widest hover:bg-cyan-400 transition-all active:scale-95 disabled:opacity-50 shadow-xl shadow-white/5"
+                >
+                  {isLoading ? "Booting..." : "Launch Console"}
+                </button>
+              </>
+            ) : (
+              <button
+                onClick={() => { void signInWithGoogle().catch(() => {}); }}
+                disabled={authLoading}
+                className="px-6 py-2.5 rounded-full bg-white text-black text-[11px] font-black uppercase tracking-widest hover:bg-cyan-400 transition-all active:scale-95 disabled:opacity-50 shadow-xl shadow-white/5"
+              >
+                {authLoading ? "Loading..." : "Sign In"}
+              </button>
+            )}
+          </motion.div>
         </div>
       </nav>
 
@@ -160,12 +211,12 @@ export default function HomePage() {
             <div className="flex flex-col sm:flex-row items-center justify-center gap-6">
               <button
                 onClick={() => handleStart()}
-                disabled={isLoading}
+                disabled={isLoading || !user || authLoading}
                 className="group relative px-12 py-6 rounded-2xl bg-white text-black font-black text-xs uppercase tracking-[0.2em] overflow-hidden transition-all hover:scale-105 active:scale-95 shadow-2xl shadow-white/5"
               >
                 <div className="absolute inset-0 bg-gradient-to-r from-cyan-400 to-emerald-400 opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
                 <span className="relative z-10 flex items-center gap-3">
-                  {isLoading ? "Initializing Mission..." : "Start Neural Session"}
+                  {isLoading ? "Initializing Mission..." : user ? "Start Neural Session" : "Sign in to Start"}
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={3} className="w-5 h-5 group-hover:translate-x-1 transition-transform duration-300">
                     <path d="M5 12h14M12 5l7 7-7 7" />
                   </svg>
@@ -435,7 +486,7 @@ export default function HomePage() {
           >
             <DemoPicker
               onSelect={(cmd) => handleStart(cmd)}
-              disabled={isLoading}
+              disabled={isLoading || !user}
             />
           </motion.div>
         </div>
@@ -466,6 +517,40 @@ export default function HomePage() {
           </motion.div>
         </div>
       </section>
+
+      {/* Recent Sessions */}
+      {user && recentSessions.length > 0 && (
+        <section className="py-20 px-8 relative">
+          <div className="max-w-4xl mx-auto">
+            <motion.div {...fadeInUp} className="space-y-6">
+              <h2 className="text-xs font-black text-emerald-500 uppercase tracking-[0.5em]">History</h2>
+              <h3 className="text-3xl font-black italic tracking-tighter uppercase">Recent Sessions</h3>
+            </motion.div>
+            <div className="mt-8 space-y-3">
+              {recentSessions.map((session) => (
+                <Link
+                  key={session.session_id}
+                  href={`/session/${session.session_id}`}
+                  className="block rounded-xl border border-white/5 bg-white/[0.02] p-4 transition hover:border-cyan-500/30 hover:bg-white/[0.04]"
+                >
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-bold text-zinc-200">{session.title}</p>
+                      <p className="truncate text-xs text-zinc-500">{session.summary || "No summary yet"}</p>
+                    </div>
+                    <div className="shrink-0 text-right">
+                      <p className="text-[10px] font-bold uppercase tracking-widest text-zinc-500">{session.status}</p>
+                      <p className="text-[10px] text-zinc-600">
+                        {session.updated_at ? new Date(session.updated_at).toLocaleString() : "Recently created"}
+                      </p>
+                    </div>
+                  </div>
+                </Link>
+              ))}
+            </div>
+          </div>
+        </section>
+      )}
 
       {/* Footer */}
       <footer className="pt-40 pb-20 px-8 border-t border-white/5 relative bg-[#030303]">

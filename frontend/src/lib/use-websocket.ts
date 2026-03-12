@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState, useEffect, useCallback } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { WsMessage, WsCommand } from "./message-types";
 
 /** Ready-state constants mirroring the WebSocket API. */
@@ -27,7 +27,9 @@ export interface UseWebSocketReturn {
   /** Raw WebSocket readyState value. */
   readyState: ReadyStateValue;
   /** Assign a callback to receive binary (audio) frames. */
-  onBinaryMessageRef: React.MutableRefObject<((data: ArrayBuffer) => void) | null>;
+  onBinaryMessageRef: React.MutableRefObject<
+    ((data: ArrayBuffer) => void) | null
+  >;
 }
 
 const MAX_RECONNECT_ATTEMPTS = 3;
@@ -46,9 +48,10 @@ export function useWebSocket(url: string | null): UseWebSocketReturn {
 
   const reconnectAttempts = useRef(0);
   const reconnectTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const connectRef = useRef<(target: string) => void>(() => {});
   /** Keeps the latest url so the reconnect closure always sees it. */
   const urlRef = useRef(url);
-  
+
   useEffect(() => {
     urlRef.current = url;
   }, [url]);
@@ -59,9 +62,6 @@ export function useWebSocket(url: string | null): UseWebSocketReturn {
       reconnectTimer.current = null;
     }
   }, []);
-
-  // We use a ref for connect to avoid the "access before declaration" issue in recursive calls
-  const connectRef = useRef<(target: string) => void>(() => {});
 
   const connect = useCallback((target: string) => {
     // Tear down any existing socket first.
@@ -101,7 +101,9 @@ export function useWebSocket(url: string | null): UseWebSocketReturn {
       }
     };
 
-    ws.onerror = () => {};
+    ws.onerror = () => {
+      // The browser fires onclose after onerror, so we handle reconnection there.
+    };
 
     ws.onmessage = (event: MessageEvent) => {
       if (event.data instanceof ArrayBuffer) {
@@ -144,7 +146,7 @@ export function useWebSocket(url: string | null): UseWebSocketReturn {
         wsRef.current = null;
       }
     };
-  }, [url, connect, clearReconnectTimer]);
+  }, [url, clearReconnectTimer]);
 
   const send = useCallback((data: string) => {
     if (wsRef.current?.readyState === WebSocket.OPEN) {

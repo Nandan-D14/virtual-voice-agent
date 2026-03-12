@@ -11,9 +11,13 @@ type ActivityEvent = {
 
 type Props = {
   events: ActivityEvent[];
+  emptyState?: string;
 };
 
-export function ActivityFeed({ events }: Props) {
+export function ActivityFeed({
+  events,
+  emptyState = "Waiting for agent activity...",
+}: Props) {
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -220,6 +224,8 @@ function ScreenshotEntry({
         <div className="space-y-2">
           <button
             onClick={() => setExpanded(!expanded)}
+            aria-expanded={expanded}
+            aria-label={expanded ? "Collapse screenshot" : "Expand screenshot"}
             className={`relative group w-full overflow-hidden rounded border border-zinc-800 bg-black transition-all duration-500 ${
               expanded ? "max-h-[400px]" : "max-h-20"
             }`}
