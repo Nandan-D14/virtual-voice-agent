@@ -14,11 +14,11 @@ type DemoScenario = {
 
 const DEMOS: DemoScenario[] = [
   {
-    title: "Research AI startups",
-    description: "Find and summarize the top 5 AI startups of 2026",
-    task: "Find and summarize the top 5 AI startups of 2026",
+    title: "Build & run a web app",
+    description: "Create a Flask app with a hello-world page, run it, and verify it works",
+    task: "Create a simple Flask web app with a styled hello-world page. Install flask if needed, save the app to app.py, run it on port 5000 in the background, then use curl to verify it responds correctly.",
     icon: (
-      /* Research / magnifying glass icon */
+      /* Globe / web icon */
       <svg
         viewBox="0 0 24 24"
         fill="none"
@@ -28,16 +28,16 @@ const DEMOS: DemoScenario[] = [
         strokeLinejoin="round"
         className="w-6 h-6"
       >
-        <circle cx="11" cy="11" r="8" />
-        <line x1="21" y1="21" x2="16.65" y2="16.65" />
-        <path d="M11 8a3 3 0 0 0-3 3" />
+        <circle cx="12" cy="12" r="10" />
+        <ellipse cx="12" cy="12" rx="4" ry="10" />
+        <line x1="2" y1="12" x2="22" y2="12" />
       </svg>
     ),
   },
   {
     title: "Write Python code",
-    description: "Create a Python fibonacci script and run it",
-    task: "Create a Python fibonacci script and run it",
+    description: "Generate Fibonacci numbers and display as a formatted table",
+    task: "Write a Python script that generates the first 20 Fibonacci numbers and prints them as a neatly formatted table with the index and value columns. Save it to fibonacci.py, run it, and show the output.",
     icon: (
       /* Code icon */
       <svg
@@ -56,9 +56,30 @@ const DEMOS: DemoScenario[] = [
     ),
   },
   {
-    title: "System info",
-    description: "Show system information and list all files on the desktop",
-    task: "Show system information and list all files on the desktop",
+    title: "Generate a chart",
+    description: "Create a matplotlib bar chart and save it as an image",
+    task: "Using Python and matplotlib, create a colorful bar chart showing the popularity of programming languages (Python, JavaScript, TypeScript, Rust, Go, Java). Save the chart as chart.png and then take a screenshot so I can see it.",
+    icon: (
+      /* Chart icon */
+      <svg
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth={1.5}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        className="w-6 h-6"
+      >
+        <rect x="3" y="12" width="4" height="8" rx="1" />
+        <rect x="10" y="6" width="4" height="14" rx="1" />
+        <rect x="17" y="3" width="4" height="17" rx="1" />
+      </svg>
+    ),
+  },
+  {
+    title: "System explorer",
+    description: "Discover OS info, hardware specs, running processes, and installed apps",
+    task: "Show me a complete system report: OS version, kernel, CPU model, total RAM, disk usage, list of running GUI applications, and the top 5 processes by memory usage. Format the output nicely.",
     icon: (
       /* Terminal icon */
       <svg
@@ -80,7 +101,7 @@ const DEMOS: DemoScenario[] = [
 
 export function DemoPicker({ onSelect, disabled }: Props) {
   return (
-    <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
       {DEMOS.map((demo) => (
         <button
           key={demo.title}

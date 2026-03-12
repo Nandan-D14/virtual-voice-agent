@@ -3,8 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import base64
-import json
 import logging
 from typing import TYPE_CHECKING, Any
 
@@ -12,7 +10,7 @@ from starlette.websockets import WebSocket
 
 from nexus.agent import create_agent, create_runner, run_agent_turn
 from nexus.tools._context import set_sandbox
-from nexus.voice import GeminiLiveManager
+from nexus.config import settings
 from nexus.prompts.system import SYSTEM_PROMPT
 
 if TYPE_CHECKING:
@@ -27,7 +25,14 @@ class NexusOrchestrator:
     def __init__(self, session: "Session", ws: WebSocket) -> None:
         self.session = session
         self.ws = ws
-        self.voice = GeminiLiveManager()
+        self.voice = None
+        self._voice_connected = False
+        self._voice_connect_task: asyncio.Task | None = None
+
+        # Only create voice manager when Google API key is available
+        if settings.google_api_key:
+            from nexus.voice import GeminiLiveManager
+            self.voice = GeminiLiveManager()
 
         # ADK agent + runner
         self._agent = create_agent()
@@ -40,8 +45,12 @@ class NexusOrchestrator:
         # Bind sandbox to tool context
         set_sandbox(self.session.sandbox)
 
-        # Connect to Gemini Live
-        await self.voice.connect(system_instruction=SYSTEM_PROMPT)
+        # Connect to Gemini Live in the background so text sessions become ready immediately.
+        if self.voice:
+            self._voice_connect_task = asyncio.create_task(self._connect_voice())
+        else:
+            logger.info("No Google API key — voice disabled, text input works")
+            self._voice_connected = False
 
         # Create ADK session
         adk_session = await self._session_service.create_session(
@@ -61,6 +70,8 @@ class NexusOrchestrator:
 
     async def handle_user_audio(self, pcm_data: bytes) -> None:
         """Forward mic audio to Gemini Live."""
+        if not self._voice_connected:
+            return
         await self.voice.send_audio(pcm_data)
         self.session.touch()
 
@@ -76,18 +87,26 @@ class NexusOrchestrator:
 
     async def handle_analyze_screen(self) -> None:
         """Take screenshot and send analysis to frontend."""
-        sandbox = self.session.sandbox
-        img_b64 = sandbox.screenshot_base64()
-        await self._send_json({
-            "type": "agent_screenshot",
-            "image_b64": img_b64,
-            "analysis": "Screenshot captured. Sending to agent...",
-        })
+        try:
+            sandbox = self.session.sandbox
+            img_b64 = sandbox.screenshot_base64()
+            await self._send_json({
+                "type": "agent_screenshot",
+                "image_b64": img_b64,
+                "analysis": "Screenshot captured. Sending to agent...",
+            })
+        except Exception:
+            logger.warning("Screenshot for analyze_screen failed", exc_info=True)
         # Feed screenshot context to agent
         await self._run_agent("Look at the current screen and describe what you see.")
 
     async def run_voice_receive_loop(self) -> None:
         """Background task: read from Gemini Live, forward to frontend."""
+        if self._voice_connect_task:
+            await self._voice_connect_task
+
+        if not self._voice_connected or not self.voice:
+            return
         try:
             async for event_type, data in self.voice.receive_events():
                 if event_type == "audio":
@@ -103,16 +122,39 @@ class NexusOrchestrator:
                     })
         except Exception:
             logger.exception("Voice receive loop error")
+            self._voice_connected = False
+            # Notify frontend that voice is no longer available
+            try:
+                await self._send_json({
+                    "type": "voice_status",
+                    "status": "disconnected",
+                    "message": "Voice connection lost. Text input still works.",
+                })
+            except Exception:
+                pass
 
     async def close(self) -> None:
         """Shut down orchestrator resources."""
-        await self.voice.close()
+        if self._voice_connect_task and not self._voice_connect_task.done():
+            self._voice_connect_task.cancel()
+            try:
+                await self._voice_connect_task
+            except asyncio.CancelledError:
+                pass
+        if self._voice_connected and self.voice:
+            await self.voice.close()
 
     # ── Private ────────────────────────────────────────────────
 
     async def _run_agent(self, message: str) -> None:
         """Run an ADK agent turn and stream events to frontend."""
         self.session.touch()
+
+        # Extend sandbox timeout before each agent turn to prevent mid-task death
+        try:
+            self.session.sandbox.extend_timeout(300)
+        except Exception:
+            logger.debug("Could not extend sandbox timeout", exc_info=True)
 
         try:
             response = await run_agent_turn(
@@ -132,10 +174,11 @@ class NexusOrchestrator:
                     "text": response,
                 })
                 # Feed to Gemini Live for TTS
-                try:
-                    await self.voice.send_text(response)
-                except Exception:
-                    logger.warning("Failed to send TTS for response")
+                if self._voice_connected:
+                    try:
+                        await self.voice.send_text(response)
+                    except Exception:
+                        logger.warning("Failed to send TTS for response")
 
                 await self._send_json({
                     "type": "agent_complete",
@@ -153,46 +196,137 @@ class NexusOrchestrator:
     async def _on_agent_event(self, event: Any) -> None:
         """Callback for each ADK agent event — stream to frontend."""
         try:
-            # Tool calls
-            if event.actions and event.actions.tool_calls:
-                for tc in event.actions.tool_calls:
-                    await self._send_json({
-                        "type": "agent_tool_call",
-                        "tool": tc.tool_name if hasattr(tc, 'tool_name') else str(tc),
-                        "args": tc.tool_input if hasattr(tc, 'tool_input') else {},
-                    })
+            function_calls = self._extract_function_calls(event)
 
-            # Agent thinking / intermediate content
-            if event.content and event.content.parts and not event.is_final_response():
-                for part in event.content.parts:
-                    if part.text:
-                        await self._send_json({
-                            "type": "agent_thinking",
-                            "content": part.text,
-                        })
-
-            # Tool results
-            if hasattr(event, 'tool_result') and event.tool_result:
-                result = event.tool_result
-                tool_name = result.get("tool_name", "unknown") if isinstance(result, dict) else "unknown"
-                output = result.get("output", str(result)) if isinstance(result, dict) else str(result)
-
+            for fc in function_calls:
+                tool_name = self._get_attr(fc, "name", "tool_name") or str(fc)
+                tool_args = self._get_attr(fc, "args", "tool_input") or {}
                 await self._send_json({
-                    "type": "agent_tool_result",
+                    "type": "agent_tool_call",
                     "tool": tool_name,
-                    "output": output[:2000],  # Truncate large outputs
+                    "args": self._coerce_mapping(tool_args),
                 })
 
-                # If the tool returned a screenshot, forward it
-                if isinstance(result, dict) and "image" in result:
+            content = getattr(event, "content", None)
+            parts = getattr(content, "parts", None) or []
+            is_final = self._is_final_response(event)
+
+            for part in parts:
+                text = getattr(part, "text", None)
+                if text and not is_final:
                     await self._send_json({
-                        "type": "agent_screenshot",
-                        "image_b64": result["image"],
-                        "analysis": "",
+                        "type": "agent_thinking",
+                        "content": text,
                     })
+
+                fn_resp = getattr(part, "function_response", None)
+                if fn_resp:
+                    tool_name = self._get_attr(fn_resp, "name") or "unknown"
+                    output = self._get_attr(fn_resp, "response")
+                    output_mapping = self._coerce_mapping(output)
+                    output_str = str(output if output is not None else "")[:2000]
+
+                    await self._send_json({
+                        "type": "agent_tool_result",
+                        "tool": tool_name,
+                        "output": output_str,
+                    })
+
+                    if tool_name == "take_screenshot":
+                        from nexus.tools.screen import get_last_screenshot_b64
+
+                        img_b64 = get_last_screenshot_b64()
+                        if img_b64:
+                            await self._send_json({
+                                "type": "agent_screenshot",
+                                "image_b64": img_b64,
+                                "analysis": output_mapping.get("description", ""),
+                            })
 
         except Exception:
             logger.exception("Error streaming agent event")
+
+    async def _connect_voice(self) -> None:
+        """Connect to Gemini Live without blocking session readiness."""
+        if not self.voice:
+            return
+
+        try:
+            await self.voice.connect(system_instruction=SYSTEM_PROMPT)
+            self._voice_connected = True
+            logger.info("Gemini Live voice connected")
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            self._voice_connected = False
+            logger.warning("Gemini Live connection failed — voice disabled, text input still works")
+
+    def _extract_function_calls(self, event: Any) -> list[Any]:
+        """Return tool calls from the different ADK event shapes."""
+        if hasattr(event, "get_function_calls"):
+            try:
+                calls = event.get_function_calls() or []
+                if calls:
+                    return list(calls)
+            except Exception:
+                logger.debug("get_function_calls() failed", exc_info=True)
+
+        actions = getattr(event, "actions", None)
+        tool_calls = getattr(actions, "tool_calls", None) if actions else None
+        if tool_calls:
+            return list(tool_calls)
+
+        content = getattr(event, "content", None)
+        parts = getattr(content, "parts", None) or []
+        calls: list[Any] = []
+        for part in parts:
+            function_call = getattr(part, "function_call", None)
+            if function_call:
+                calls.append(function_call)
+        return calls
+
+    def _is_final_response(self, event: Any) -> bool:
+        """Safely detect final ADK responses across API variants."""
+        is_final_response = getattr(event, "is_final_response", None)
+        if callable(is_final_response):
+            try:
+                return bool(is_final_response())
+            except Exception:
+                logger.debug("is_final_response() failed", exc_info=True)
+        return False
+
+    def _get_attr(self, obj: Any, *names: str) -> Any:
+        """Return the first present attribute or mapping key."""
+        for name in names:
+            if isinstance(obj, dict) and name in obj:
+                return obj[name]
+            if hasattr(obj, name):
+                return getattr(obj, name)
+        return None
+
+    def _coerce_mapping(self, value: Any) -> dict[str, Any]:
+        """Convert ADK/protobuf-ish payloads into JSON-safe dicts when possible."""
+        if value is None:
+            return {}
+        if isinstance(value, dict):
+            return value
+        if hasattr(value, "items"):
+            try:
+                return dict(value.items())
+            except Exception:
+                pass
+        if hasattr(value, "to_dict"):
+            try:
+                return value.to_dict()
+            except Exception:
+                pass
+        if hasattr(value, "__dict__"):
+            return {
+                key: raw
+                for key, raw in vars(value).items()
+                if not key.startswith("_")
+            }
+        return {"value": str(value)}
 
     async def _send_json(self, data: dict) -> None:
         """Send JSON message to the frontend WebSocket."""

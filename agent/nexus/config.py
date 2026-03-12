@@ -4,7 +4,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
+    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
     # E2B Desktop
     e2b_api_key: str = ""
@@ -17,6 +17,21 @@ class Settings(BaseSettings):
     # Gemini models
     gemini_live_model: str = "gemini-2.5-flash-native-audio-preview-12-2025"
     gemini_vision_model: str = "gemini-2.5-flash"
+
+    # Kilo Code (OpenAI-compatible gateway — can be used alongside Gemini)
+    kilo_api_key: str = ""
+    kilo_model_id: str = "minimax/minimax-m2.5:free"
+    kilo_gateway_url: str = "https://api.kilo.ai/api/gateway"
+
+    @property
+    def use_kilo(self) -> bool:
+        """True when Kilo is available for agent reasoning/tool calling."""
+        return bool(self.kilo_api_key)
+
+    @property
+    def use_vision(self) -> bool:
+        """True when Gemini vision is available for screenshot analysis."""
+        return bool(self.google_api_key)
 
     # Server
     frontend_url: str = "http://localhost:3000"

@@ -20,6 +20,7 @@ class GeminiLiveManager:
     def __init__(self) -> None:
         self._client = genai.Client(api_key=settings.google_api_key)
         self._session = None
+        self._live = None
         self._connected = False
 
     @property

@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 
 def open_browser(url: str) -> dict:
     """Open a URL in the web browser.
@@ -15,7 +19,11 @@ def open_browser(url: str) -> dict:
     Returns:
         dict with status message.
     """
-    from nexus.tools._context import get_sandbox
-    sandbox = get_sandbox()
-    sandbox.open_url(url)
-    return {"status": "success", "message": f"Opened {url} in browser"}
+    try:
+        from nexus.tools._context import get_sandbox
+        sandbox = get_sandbox()
+        sandbox.open_url(url)
+        return {"status": "success", "message": f"Opened {url} in browser"}
+    except Exception as e:
+        logger.error("open_browser failed: %s", e)
+        return {"status": "error", "message": f"Failed to open browser: {e}"}

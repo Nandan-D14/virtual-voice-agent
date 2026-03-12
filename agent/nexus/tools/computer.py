@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 
 def left_click(x: int, y: int) -> dict:
     """Click the left mouse button at screen coordinates (x, y).
@@ -16,10 +20,14 @@ def left_click(x: int, y: int) -> dict:
     Returns:
         dict with status message.
     """
-    from nexus.tools._context import get_sandbox
-    sandbox = get_sandbox()
-    sandbox.left_click(x, y)
-    return {"status": "success", "message": f"Left clicked at ({x}, {y})"}
+    try:
+        from nexus.tools._context import get_sandbox
+        sandbox = get_sandbox()
+        sandbox.left_click(x, y)
+        return {"status": "success", "message": f"Left clicked at ({x}, {y})"}
+    except Exception as e:
+        logger.error("left_click failed: %s", e)
+        return {"status": "error", "message": f"Left click failed: {e}"}
 
 
 def right_click(x: int, y: int) -> dict:
@@ -32,10 +40,14 @@ def right_click(x: int, y: int) -> dict:
     Returns:
         dict with status message.
     """
-    from nexus.tools._context import get_sandbox
-    sandbox = get_sandbox()
-    sandbox.right_click(x, y)
-    return {"status": "success", "message": f"Right clicked at ({x}, {y})"}
+    try:
+        from nexus.tools._context import get_sandbox
+        sandbox = get_sandbox()
+        sandbox.right_click(x, y)
+        return {"status": "success", "message": f"Right clicked at ({x}, {y})"}
+    except Exception as e:
+        logger.error("right_click failed: %s", e)
+        return {"status": "error", "message": f"Right click failed: {e}"}
 
 
 def double_click(x: int, y: int) -> dict:
@@ -48,10 +60,14 @@ def double_click(x: int, y: int) -> dict:
     Returns:
         dict with status message.
     """
-    from nexus.tools._context import get_sandbox
-    sandbox = get_sandbox()
-    sandbox.double_click(x, y)
-    return {"status": "success", "message": f"Double clicked at ({x}, {y})"}
+    try:
+        from nexus.tools._context import get_sandbox
+        sandbox = get_sandbox()
+        sandbox.double_click(x, y)
+        return {"status": "success", "message": f"Double clicked at ({x}, {y})"}
+    except Exception as e:
+        logger.error("double_click failed: %s", e)
+        return {"status": "error", "message": f"Double click failed: {e}"}
 
 
 def type_text(text: str) -> dict:
@@ -66,10 +82,14 @@ def type_text(text: str) -> dict:
     Returns:
         dict with status message.
     """
-    from nexus.tools._context import get_sandbox
-    sandbox = get_sandbox()
-    sandbox.type_text(text)
-    return {"status": "success", "message": f"Typed {len(text)} characters"}
+    try:
+        from nexus.tools._context import get_sandbox
+        sandbox = get_sandbox()
+        sandbox.type_text(text)
+        return {"status": "success", "message": f"Typed {len(text)} characters"}
+    except Exception as e:
+        logger.error("type_text failed: %s", e)
+        return {"status": "error", "message": f"Type text failed: {e}"}
 
 
 def press_key(key: str) -> dict:
@@ -92,16 +112,14 @@ def press_key(key: str) -> dict:
     Returns:
         dict with status message.
     """
-    from nexus.tools._context import get_sandbox
-    sandbox = get_sandbox()
-
-    parts = [k.strip().lower() for k in key.split("+")]
-    if len(parts) == 1:
-        sandbox.press(parts[0])
-    else:
-        sandbox.press(parts)
-
-    return {"status": "success", "message": f"Pressed {key}"}
+    try:
+        from nexus.tools._context import get_sandbox
+        sandbox = get_sandbox()
+        sandbox.press_key(key)
+        return {"status": "success", "message": f"Pressed {key}"}
+    except Exception as e:
+        logger.error("press_key failed: %s", e)
+        return {"status": "error", "message": f"Press key failed: {e}"}
 
 
 def scroll_screen(direction: str, amount: int = 3) -> dict:
@@ -114,10 +132,14 @@ def scroll_screen(direction: str, amount: int = 3) -> dict:
     Returns:
         dict with status message.
     """
-    from nexus.tools._context import get_sandbox
-    sandbox = get_sandbox()
-    sandbox.scroll(direction, amount)
-    return {"status": "success", "message": f"Scrolled {direction} by {amount}"}
+    try:
+        from nexus.tools._context import get_sandbox
+        sandbox = get_sandbox()
+        sandbox.scroll(direction, amount)
+        return {"status": "success", "message": f"Scrolled {direction} by {amount}"}
+    except Exception as e:
+        logger.error("scroll_screen failed: %s", e)
+        return {"status": "error", "message": f"Scroll failed: {e}"}
 
 
 def drag(from_x: int, from_y: int, to_x: int, to_y: int) -> dict:
@@ -134,7 +156,11 @@ def drag(from_x: int, from_y: int, to_x: int, to_y: int) -> dict:
     Returns:
         dict with status message.
     """
-    from nexus.tools._context import get_sandbox
-    sandbox = get_sandbox()
-    sandbox.drag(from_x, from_y, to_x, to_y)
-    return {"status": "success", "message": f"Dragged from ({from_x},{from_y}) to ({to_x},{to_y})"}
+    try:
+        from nexus.tools._context import get_sandbox
+        sandbox = get_sandbox()
+        sandbox.drag(from_x, from_y, to_x, to_y)
+        return {"status": "success", "message": f"Dragged from ({from_x},{from_y}) to ({to_x},{to_y})"}
+    except Exception as e:
+        logger.error("drag failed: %s", e)
+        return {"status": "error", "message": f"Drag failed: {e}"}
