@@ -39,6 +39,8 @@ export function ConversationPanel({ messages, isThinking = false }: Props) {
               stroke="currentColor"
               strokeWidth={1.5}
               className="relative w-12 h-12 text-zinc-700"
+              aria-hidden="true"
+              focusable="false"
             >
               <path
                 strokeLinecap="round"
