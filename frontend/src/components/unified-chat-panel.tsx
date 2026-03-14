@@ -1,6 +1,7 @@
 "use client";
 
 import { useRef, useEffect, useState } from "react";
+import { ChatMarkdown } from "@/components/chat-markdown";
 import { PermissionCard } from "@/components/permission-card";
 
 /* ------------------------------------------------------------------ */
@@ -216,7 +217,7 @@ function MessageBubble({
             : "bg-white dark:bg-zinc-900 text-foreground dark:text-zinc-200 border border-card-border dark:border-zinc-800 rounded-tl-none shadow-sm dark:shadow-none"
         }`}
       >
-        {text}
+        <ChatMarkdown content={text} />
       </div>
     </div>
   );

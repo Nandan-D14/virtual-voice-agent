@@ -7,6 +7,7 @@ import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { ArrowLeft, Clock, MessageSquare, AlertCircle, RefreshCw } from "lucide-react";
 import { motion } from "framer-motion";
+import { ChatMarkdown } from "@/components/chat-markdown";
 
 interface Message {
   id: string;
@@ -115,7 +116,7 @@ export default function HistoryTranscriptPage() {
                   ? "bg-cyan-500/10 border border-cyan-500/20 text-cyan-950 dark:text-cyan-50 rounded-br-none" 
                   : "bg-card dark:bg-white/5 border border-card-border dark:border-white/10 text-foreground dark:text-zinc-300 rounded-bl-none shadow-sm dark:shadow-none"
               }`}>
-                {m.text}
+                <ChatMarkdown content={m.text} />
               </div>
               {m.createdAt && (
                 <div className="text-[9px] font-mono text-muted dark:text-zinc-600 px-1 mt-1">

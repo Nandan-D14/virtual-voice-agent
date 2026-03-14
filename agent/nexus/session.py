@@ -6,7 +6,7 @@ import asyncio
 import logging
 import uuid
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from typing import TYPE_CHECKING, Optional
 
 import jwt
@@ -171,17 +171,24 @@ class SessionManager:
 
     def create_ticket(self, session_id: str, owner_id: str) -> str:
         """Create a short-lived JWT for WebSocket authentication."""
+        now = datetime.now(timezone.utc)
         payload = {
             "sid": session_id,
             "uid": owner_id,
-            "exp": datetime.now(timezone.utc).timestamp() + 120,  # 2 min
+            "iat": int(now.timestamp()),
+            "exp": int((now + timedelta(minutes=10)).timestamp()),
         }
         return jwt.encode(payload, settings.jwt_secret, algorithm="HS256")
 
     def validate_ticket(self, token: str) -> tuple[Optional[str], Optional[str]]:
         """Validate a WS ticket. Returns (session_id, owner_id) or (None, None)."""
         try:
-            payload = jwt.decode(token, settings.jwt_secret, algorithms=["HS256"])
+            payload = jwt.decode(
+                token,
+                settings.jwt_secret,
+                algorithms=["HS256"],
+                leeway=30,
+            )
             return payload.get("sid"), payload.get("uid")
         except jwt.InvalidTokenError:
             return None, None
