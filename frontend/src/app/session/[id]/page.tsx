@@ -80,6 +80,10 @@ export default function SessionPage() {
   const inputRef = useRef<HTMLInputElement>(null);
   const landingInputRef = useRef<HTMLTextAreaElement>(null);
   const { registerDesktop, clearDesktop } = useLiveDesktop();
+  const greetingName =
+    user?.displayName?.trim() ||
+    user?.email?.split("@")[0]?.trim() ||
+    "there";
 
   const wsUrl =
     typeof window !== "undefined"
@@ -613,7 +617,7 @@ export default function SessionPage() {
             <div className="max-w-2xl w-full flex flex-col items-center gap-8 mb-20 mt-10">
               <div className="text-center space-y-4">
                 <h1 className="text-4xl sm:text-5xl font-semibold tracking-tight text-foreground dark:text-zinc-100">
-                  Hello Peak.
+                  Hello {greetingName}.
                 </h1>
                 <p className="text-xl text-muted dark:text-zinc-400">
                   What can I do for you?
