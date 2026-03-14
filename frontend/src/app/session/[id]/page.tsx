@@ -4,6 +4,7 @@ import { useParams, useRouter, useSearchParams } from "next/navigation";
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
 } from "react";
@@ -131,6 +132,14 @@ export default function SessionPage() {
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, []);
+
+  useLayoutEffect(() => {
+    const el = landingInputRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    const maxHeight = 200;
+    el.style.height = `${Math.min(el.scrollHeight, maxHeight)}px`;
+  }, [textInput]);
 
   /* ---- WS message handler ---- */
   const handleLastMessage = useCallback((msg: WsMessage) => {
@@ -662,7 +671,7 @@ export default function SessionPage() {
                     }}
                     placeholder="Give Nexus a task to work on..."
                     rows={2}
-                    className="w-full bg-transparent border-none outline-none text-base text-foreground dark:text-zinc-100 placeholder:text-muted dark:placeholder:text-zinc-500 resize-none overflow-hidden"
+                    className="w-full bg-transparent border-none outline-none text-base text-foreground dark:text-zinc-100 placeholder:text-muted dark:placeholder:text-zinc-500 resize-none overflow-y-auto min-h-[56px] max-h-[200px] leading-relaxed"
                   />
                   <div className="flex items-center justify-between mt-2">
                     <div className="flex items-center gap-3 text-zinc-400">
