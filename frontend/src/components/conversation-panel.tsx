@@ -2,6 +2,7 @@
 
 import { useRef, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
+import { ChatMarkdown } from "@/components/chat-markdown";
 
 type Message = {
   role: "user" | "agent";
@@ -91,7 +92,7 @@ export function ConversationPanel({ messages, isThinking = false }: Props) {
                   : "bg-zinc-900 text-zinc-200 border border-zinc-800 rounded-tl-none"
               }`}
             >
-              {msg.text}
+              <ChatMarkdown content={msg.text} />
             </div>
           </motion.div>
         ))}
