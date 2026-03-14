@@ -56,26 +56,59 @@ def take_screenshot() -> dict:
 
         try:
             if settings.use_vision:
-                # Use Google Gemini Vision
                 from google import genai
                 from google.genai import types
+                from google.genai.errors import ClientError
+
                 client = genai.Client(api_key=settings.google_api_key)
-                response = client.models.generate_content(
-                    model=settings.gemini_vision_model,
-                    contents=[
-                        types.Content(
-                            role="user",
-                            parts=[
-                                types.Part(text=vision_prompt),
-                                types.Part.from_bytes(data=jpeg_bytes, mime_type="image/jpeg"),
+
+                # Build ordered list of models to try: primary first, then fallbacks
+                fallbacks = [
+                    m.strip()
+                    for m in settings.gemini_vision_fallback_models.split(",")
+                    if m.strip()
+                ]
+                models_to_try = [settings.gemini_vision_model] + fallbacks
+
+                description = None
+                last_error: Exception | None = None
+                for model in models_to_try:
+                    try:
+                        response = client.models.generate_content(
+                            model=model,
+                            contents=[
+                                types.Content(
+                                    role="user",
+                                    parts=[
+                                        types.Part(text=vision_prompt),
+                                        types.Part.from_bytes(data=jpeg_bytes, mime_type="image/jpeg"),
+                                    ],
+                                )
                             ],
                         )
-                    ],
-                )
-                description = response.text or "Analysis returned empty."
-                # Truncate to avoid bloating the LLM context
-                if len(description) > 3000:
-                    description = description[:3000] + "... (truncated)"
+                        description = response.text or "Analysis returned empty."
+                        if len(description) > 3000:
+                            description = description[:3000] + "... (truncated)"
+                        break  # success
+                    except ClientError as exc:
+                        last_error = exc
+                        if exc.status_code == 429:
+                            logger.warning(
+                                "Vision model %s quota exhausted (429), trying next fallback.",
+                                model,
+                            )
+                            continue
+                        raise  # non-quota error — propagate
+
+                if description is None:
+                    logger.error(
+                        "All vision models exhausted quota. Last error: %s", last_error
+                    )
+                    description = (
+                        "Screenshot captured but all vision models have exhausted their "
+                        "free-tier quota for today. Navigating by text commands (bash/xdotool) "
+                        "is still available."
+                    )
             else:
                 description = (
                     "Screenshot captured. Vision analysis is not available because no Google "
