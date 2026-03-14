@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useEffect, useState } from "react";
+import { useMemo, useRef, useEffect, useState, type ReactNode } from "react";
 import { ChatMarkdown } from "@/components/chat-markdown";
 import { PermissionCard } from "@/components/permission-card";
 
@@ -26,6 +26,12 @@ type Props = {
   isThinking: boolean;
   onPermissionRespond: (taskId: string, approved: boolean) => void;
 };
+
+type RenderItem =
+  | { kind: "message"; item: Extract<ChatItem, { kind: "message" }> }
+  | { kind: "permission"; item: Extract<ChatItem, { kind: "permission" }> }
+  | { kind: "delegation"; item: Extract<ChatItem, { kind: "delegation" }> }
+  | { kind: "event_group"; items: Extract<ChatItem, { kind: "event" }>[] };
 
 /* ------------------------------------------------------------------ */
 /*  CSS animation styles (injected once into <head>)                   */
@@ -96,6 +102,7 @@ export function UnifiedChatPanel({
   onPermissionRespond,
 }: Props) {
   const scrollRef = useRef<HTMLDivElement>(null);
+  const [filter, setFilter] = useState<"all" | "chat" | "logs">("all");
 
   // Inject CSS keyframes on mount
   useEffect(() => {
@@ -108,7 +115,44 @@ export function UnifiedChatPanel({
     if (el) {
       el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
     }
-  }, [items, isThinking]);
+  }, [items, isThinking, filter]);
+
+  const renderItems = useMemo<RenderItem[]>(() => {
+    const groups: RenderItem[] = [];
+    let buffer: Extract<ChatItem, { kind: "event" }>[] = [];
+
+    const flush = () => {
+      if (buffer.length > 0) {
+        groups.push({ kind: "event_group", items: buffer });
+        buffer = [];
+      }
+    };
+
+    for (const item of items) {
+      if (item.kind === "event") {
+        buffer.push(item);
+        continue;
+      }
+      flush();
+      if (item.kind === "message") {
+        groups.push({ kind: "message", item });
+      } else if (item.kind === "permission") {
+        groups.push({ kind: "permission", item });
+      } else if (item.kind === "delegation") {
+        groups.push({ kind: "delegation", item });
+      }
+    }
+    flush();
+    return groups;
+  }, [items]);
+
+  const filteredItems = useMemo(() => {
+    if (filter === "all") return renderItems;
+    if (filter === "chat") {
+      return renderItems.filter((item) => item.kind !== "event_group");
+    }
+    return renderItems.filter((item) => item.kind === "event_group");
+  }, [filter, renderItems]);
 
   return (
     <div
@@ -116,16 +160,49 @@ export function UnifiedChatPanel({
       className="overflow-y-auto h-full custom-scrollbar flex flex-col px-4 py-6"
     >
       <div className="mx-auto max-w-3xl w-full flex flex-col gap-1.5 pb-4">
-        {items.map((item, i) => (
-          <div key={`${item.ts}-${item.kind}-${i}`} className="ucp-fade-in flex flex-col w-full">
-            <ChatItemRouter
-              item={item}
-              onPermissionRespond={onPermissionRespond}
-            />
+        <div className="sticky top-0 z-10 pb-4">
+          <div className="flex items-center justify-between rounded-xl border border-card-border dark:border-zinc-800 bg-background/80 dark:bg-[#0b0b0f]/80 backdrop-blur px-3 py-2">
+            <div className="text-[10px] uppercase tracking-[0.2em] text-muted dark:text-zinc-500 font-bold">
+              Conversation
+            </div>
+            <div className="flex items-center gap-1 rounded-lg border border-card-border dark:border-zinc-800 bg-white/70 dark:bg-black/40 p-1">
+              {(["all", "chat", "logs"] as const).map((mode) => (
+                <button
+                  key={mode}
+                  type="button"
+                  onClick={() => setFilter(mode)}
+                  className={`px-2.5 py-1 text-[10px] font-bold uppercase tracking-widest rounded-md transition-colors ${
+                    filter === mode
+                      ? "bg-cyan-500/20 text-cyan-300"
+                      : "text-muted dark:text-zinc-500 hover:text-foreground dark:hover:text-zinc-300"
+                  }`}
+                >
+                  {mode}
+                </button>
+              ))}
+            </div>
           </div>
-        ))}
+        </div>
 
-        {isThinking && (
+        {filteredItems.map((item, i) => {
+          if (item.kind === "event_group") {
+            return (
+              <div key={`event-group-${i}`} className="ucp-fade-in flex flex-col w-full">
+                <EventGroupCard items={item.items} />
+              </div>
+            );
+          }
+          return (
+            <div key={`${item.item.ts}-${item.kind}-${i}`} className="ucp-fade-in flex flex-col w-full">
+              <ChatItemRouter
+                item={item.item}
+                onPermissionRespond={onPermissionRespond}
+              />
+            </div>
+          );
+        })}
+
+        {isThinking && filter !== "logs" && (
           <div className="ucp-fade-in w-full">
             <ThinkingIndicator />
           </div>
@@ -188,6 +265,27 @@ function MessageBubble({
   ts: number;
 }) {
   const isUser = role === "user";
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1200);
+    } catch {
+      const el = document.createElement("textarea");
+      el.value = text;
+      el.style.position = "fixed";
+      el.style.top = "-9999px";
+      document.body.appendChild(el);
+      el.focus();
+      el.select();
+      document.execCommand("copy");
+      document.body.removeChild(el);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1200);
+    }
+  };
 
   return (
     <div
@@ -195,29 +293,327 @@ function MessageBubble({
         isUser ? "items-end" : "items-start"
       }`}
     >
-      {/* Label + timestamp */}
-      <div className="flex items-center gap-2 mb-1 px-1">
-        <span
-          className={`text-[9px] font-black uppercase tracking-[0.2em] ${
-            isUser ? "text-cyan-500" : "text-emerald-500"
-          }`}
-        >
-          {isUser ? "You" : "NEXUS"}
-        </span>
-        <span className="text-[9px] text-muted dark:text-zinc-600 font-mono">
-          {formatTime(ts)}
-        </span>
-      </div>
+      {isUser ? (
+        <div className="flex items-center gap-2 mb-1 px-1">
+          <span className="text-[9px] font-black uppercase tracking-[0.2em] text-cyan-500">
+            You
+          </span>
+          <span className="text-[9px] text-muted dark:text-zinc-600 font-mono">
+            {formatTime(ts)}
+          </span>
+        </div>
+      ) : (
+        <div className="flex items-center gap-2 mb-2 px-1">
+          <div className="h-6 w-6 rounded-full bg-emerald-500/20 text-emerald-300 flex items-center justify-center text-[11px] font-bold">
+            N
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-sm font-semibold text-foreground dark:text-zinc-100">
+              NEXUS
+            </span>
+            <span className="text-[9px] uppercase tracking-widest px-2 py-0.5 rounded-full border border-emerald-500/30 text-emerald-300 bg-emerald-500/10">
+              Lite
+            </span>
+            <span className="text-[9px] text-muted dark:text-zinc-600 font-mono">
+              {formatTime(ts)}
+            </span>
+          </div>
+        </div>
+      )}
 
       {/* Bubble */}
       <div
-        className={`max-w-[85%] px-4 py-3 rounded-2xl text-sm leading-relaxed transition-colors duration-200 ${
+        className={`group relative max-w-[85%] px-4 py-3 rounded-2xl text-sm leading-relaxed transition-colors duration-200 ${
           isUser
-            ? "bg-cyan-500/5 text-cyan-50 border border-cyan-500/20 rounded-tr-none"
-            : "bg-white dark:bg-zinc-900 text-foreground dark:text-zinc-200 border border-card-border dark:border-zinc-800 rounded-tl-none shadow-sm dark:shadow-none"
+            ? "bg-zinc-800/80 text-zinc-100 border border-cyan-500/25 rounded-tr-none"
+            : "bg-zinc-900/70 text-zinc-100 border border-white/5 rounded-tl-none shadow-sm dark:shadow-none"
         }`}
       >
+        <button
+          type="button"
+          onClick={handleCopy}
+          className="absolute -top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity text-[9px] uppercase tracking-widest font-bold px-2 py-1 rounded-md border border-card-border dark:border-zinc-800 bg-background/80 dark:bg-black/60 text-muted dark:text-zinc-400 hover:text-foreground dark:hover:text-zinc-200"
+        >
+          {copied ? "Copied" : "Copy"}
+        </button>
         <ChatMarkdown content={text} />
+      </div>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  Event groups (timeline style)                                      */
+/* ------------------------------------------------------------------ */
+
+function getEventGroupTitle(
+  items: Extract<ChatItem, { kind: "event" }>[],
+): string {
+  const thinking = items.find(
+    (item) => item.type === "agent_thinking" && typeof item["content"] === "string",
+  );
+  if (thinking && typeof thinking["content"] === "string") {
+    return truncateText(thinking["content"], 64);
+  }
+
+  const toolCall = items.find((item) => item.type === "agent_tool_call");
+  if (toolCall && typeof toolCall["tool"] === "string") {
+    return `Running ${toolCall["tool"]}`;
+  }
+
+  const task = items.find((item) => item.type === "bg_task_progress");
+  if (task && typeof task["message"] === "string") {
+    return truncateText(task["message"], 64);
+  }
+
+  return "Agent activity";
+}
+
+function truncateText(text: string, max = 80) {
+  if (text.length <= max) return text;
+  return text.slice(0, max).trim() + "\u2026";
+}
+
+function EventGroupCard({
+  items,
+}: {
+  items: Extract<ChatItem, { kind: "event" }>[];
+}) {
+  const title = getEventGroupTitle(items);
+  const count = items.length;
+
+  return (
+    <div className="px-4 py-2">
+      <details className="chat-log-card" open>
+        <summary className="chat-log-summary">
+          <div className="flex items-center gap-3">
+            <span className="chat-log-dot" />
+            <div>
+              <div className="text-xs font-semibold text-foreground dark:text-zinc-100">
+                {title}
+              </div>
+              <div className="text-[10px] uppercase tracking-widest text-muted dark:text-zinc-500">
+                {count} step{count === 1 ? "" : "s"}
+              </div>
+            </div>
+          </div>
+          <span className="chat-log-chevron" aria-hidden="true" />
+        </summary>
+        <div className="chat-log-body">
+          {items.map((item, index) => (
+            <EventRow
+              key={`${item.type}-${item.ts}-${index}`}
+              item={item}
+              isLast={index === items.length - 1}
+            />
+          ))}
+        </div>
+      </details>
+    </div>
+  );
+}
+
+function EventRow({
+  item,
+  isLast,
+}: {
+  item: Extract<ChatItem, { kind: "event" }>;
+  isLast: boolean;
+}) {
+  const time = formatTime(item.ts);
+
+  const base =
+    "text-[11px] font-bold uppercase tracking-widest text-muted dark:text-zinc-500";
+
+  switch (item.type) {
+    case "agent_thinking":
+      return (
+        <TimelineRow
+          isLast={isLast}
+          dotClass="bg-zinc-400"
+          time={time}
+          label="Thinking"
+          labelClass="text-zinc-300"
+          content={typeof item["content"] === "string" ? item["content"] : "Thinking\u2026"}
+        />
+      );
+    case "agent_tool_call":
+      return (
+        <TimelineRow
+          isLast={isLast}
+          dotClass="bg-cyan-400"
+          time={time}
+          label="Tool Call"
+          labelClass="text-cyan-300"
+          content={
+            <div className="space-y-2">
+              <div className="font-mono text-cyan-200">
+                {String(item["tool"] || "tool")}
+              </div>
+              {item["args"] ? (
+                <pre className="chat-code-block">
+                  {JSON.stringify(item["args"], null, 2)}
+                </pre>
+              ) : (
+                <div className="text-xs text-zinc-400">No args</div>
+              )}
+            </div>
+          }
+        />
+      );
+    case "agent_tool_result":
+      return (
+        <TimelineRow
+          isLast={isLast}
+          dotClass="bg-emerald-400"
+          time={time}
+          label="Tool Result"
+          labelClass="text-emerald-300"
+          content={
+            <pre className="chat-code-block">
+              {String(item["output"] || "No output")}
+            </pre>
+          }
+        />
+      );
+    case "agent_screenshot":
+      return (
+        <TimelineRow
+          isLast={isLast}
+          dotClass="bg-amber-400"
+          time={time}
+          label="Screenshot"
+          labelClass="text-amber-300"
+          content={
+            <div className="space-y-2">
+              {typeof item["analysis"] === "string" && item["analysis"] && (
+                <p className="text-xs text-zinc-400">{item["analysis"]}</p>
+              )}
+              {typeof item["image_b64"] === "string" && item["image_b64"] && (
+                <img
+                  src={`data:image/png;base64,${item["image_b64"]}`}
+                  alt="Agent screenshot"
+                  className="rounded-lg border border-zinc-800 max-h-64"
+                />
+              )}
+            </div>
+          }
+        />
+      );
+    case "bg_task_progress":
+      return (
+        <TimelineRow
+          isLast={isLast}
+          dotClass="bg-amber-400"
+          time={time}
+          label="Background"
+          labelClass="text-amber-300"
+          content={
+            <div className="space-y-2">
+              <div className="text-xs text-zinc-300">
+                {String(item["message"] || "")}
+              </div>
+              <div className="h-1.5 rounded-full bg-zinc-800 overflow-hidden">
+                <div
+                  className="h-full bg-amber-400"
+                  style={{
+                    width: `${Math.min(100, Math.max(0, Number(item["progress"] ?? 0)))}%`,
+                  }}
+                />
+              </div>
+            </div>
+          }
+        />
+      );
+    case "bg_task_complete":
+      return (
+        <TimelineRow
+          isLast={isLast}
+          dotClass={item["success"] ? "bg-emerald-400" : "bg-red-400"}
+          time={time}
+          label={item["success"] ? "Task Done" : "Task Failed"}
+          labelClass={item["success"] ? "text-emerald-300" : "text-red-300"}
+          content={String(item["result"] || "")}
+        />
+      );
+    case "agent_complete":
+      return (
+        <TimelineRow
+          isLast={isLast}
+          dotClass="bg-emerald-400"
+          time={time}
+          label="Complete"
+          labelClass="text-emerald-300"
+          content="Agent completed the task."
+        />
+      );
+    case "voice_status":
+      return (
+        <TimelineRow
+          isLast={isLast}
+          dotClass="bg-zinc-400"
+          time={time}
+          label={String(item["status"] || "Voice")}
+          labelClass="text-zinc-300"
+          content={String(item["message"] || "")}
+        />
+      );
+    case "error":
+      return (
+        <TimelineRow
+          isLast={isLast}
+          dotClass="bg-red-400"
+          time={time}
+          label="Error"
+          labelClass="text-red-300"
+          content={String(item["message"] || "An error occurred")}
+        />
+      );
+    default:
+      return (
+        <TimelineRow
+          isLast={isLast}
+          dotClass="bg-zinc-500"
+          time={time}
+          label={item.type}
+          labelClass={base}
+          content={JSON.stringify(item)}
+        />
+      );
+  }
+}
+
+function TimelineRow({
+  isLast,
+  dotClass,
+  time,
+  label,
+  labelClass,
+  content,
+}: {
+  isLast: boolean;
+  dotClass: string;
+  time: string;
+  label: string;
+  labelClass: string;
+  content: ReactNode;
+}) {
+  return (
+    <div className="chat-timeline-item">
+      <div className={`chat-timeline-dot ${dotClass}`} />
+      {!isLast && <div className="chat-timeline-line" />}
+      <div className="min-w-0 space-y-1">
+        <div className="flex items-center gap-2">
+          <span className="text-[10px] font-mono text-muted dark:text-zinc-600">
+            {time}
+          </span>
+          <span className={`text-[10px] font-bold uppercase tracking-widest ${labelClass}`}>
+            {label}
+          </span>
+        </div>
+        <div className="text-xs text-zinc-300 dark:text-zinc-400 leading-relaxed">
+          {content}
+        </div>
       </div>
     </div>
   );
@@ -323,25 +719,30 @@ function ToolCallPill({
   tool: string;
   args?: Record<string, unknown>;
 }) {
-  const argsStr = args
-    ? Object.entries(args)
-        .map(
-          ([k, v]) =>
-            `${k}=${typeof v === "string" ? v : JSON.stringify(v)}`
-        )
-        .join(", ")
-    : "";
+  const argsStr = args ? JSON.stringify(args, null, 2) : "";
+  const preview = argsStr
+    ? argsStr.length > 120
+      ? argsStr.slice(0, 120) + "\u2026"
+      : argsStr
+    : "No args";
 
   return (
     <div className="flex items-start gap-2 py-1 px-3">
       <span className="mt-1.5 block w-2 h-2 rounded-full bg-cyan-500 shrink-0" />
-      <div className="min-w-0 font-mono text-[11px] leading-snug">
-        <span className="text-muted dark:text-zinc-700 mr-1.5 select-none">
-          {formatTime(ts)}
-        </span>
-        <span className="text-cyan-400">{tool}</span>
-        <span className="text-zinc-400 dark:text-zinc-500">({argsStr})</span>
-      </div>
+      <details className="chat-details min-w-0 flex-1 rounded-lg border border-cyan-500/20 bg-cyan-500/5 px-3 py-2">
+        <summary className="cursor-pointer list-none text-[11px] font-mono text-cyan-200 flex items-center gap-2">
+          <span className="text-muted dark:text-zinc-700 select-none">
+            {formatTime(ts)}
+          </span>
+          <span className="font-bold">{tool}</span>
+          <span className="text-zinc-400 dark:text-zinc-500">{preview}</span>
+        </summary>
+        {argsStr && (
+          <pre className="mt-2 text-[11px] text-zinc-300 whitespace-pre-wrap break-words">
+            {argsStr}
+          </pre>
+        )}
+      </details>
     </div>
   );
 }
@@ -360,21 +761,26 @@ function ToolResultPill({
   output: string;
 }) {
   const display =
-    output && output.length > 120
-      ? output.slice(0, 120) + "\u2026"
-      : output || "";
+    output && output.length > 120 ? output.slice(0, 120) + "\u2026" : output || "";
 
   return (
     <div className="flex items-start gap-2 py-1 px-3">
       <span className="mt-1.5 block w-2 h-2 rounded-full bg-emerald-500 shrink-0" />
-      <div className="min-w-0 font-mono text-[11px] leading-snug">
-        <span className="text-muted dark:text-zinc-700 mr-1.5 select-none">
-          {formatTime(ts)}
-        </span>
-        <span className="text-emerald-400 font-bold">{tool}</span>
-        <span className="text-muted dark:text-zinc-500 mx-1">&rarr;</span>
-        <span className="text-zinc-500 dark:text-zinc-400 break-all">{display}</span>
-      </div>
+      <details className="chat-details min-w-0 flex-1 rounded-lg border border-emerald-500/20 bg-emerald-500/5 px-3 py-2">
+        <summary className="cursor-pointer list-none text-[11px] font-mono text-emerald-200 flex items-center gap-2">
+          <span className="text-muted dark:text-zinc-700 select-none">
+            {formatTime(ts)}
+          </span>
+          <span className="font-bold">{tool}</span>
+          <span className="text-muted dark:text-zinc-500 mx-1">&rarr;</span>
+          <span className="text-zinc-400 dark:text-zinc-500 break-all">{display || "No output"}</span>
+        </summary>
+        {output && (
+          <pre className="mt-2 text-[11px] text-zinc-300 whitespace-pre-wrap break-words">
+            {output}
+          </pre>
+        )}
+      </details>
     </div>
   );
 }

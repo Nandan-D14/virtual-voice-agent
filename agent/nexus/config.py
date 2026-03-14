@@ -32,6 +32,8 @@ class Settings(BaseSettings):
     # Gemini models
     gemini_live_model: str = "gemini-2.5-flash-native-audio-preview-12-2025"
     gemini_vision_model: str = "gemini-2.5-flash"
+    # Fallback vision models tried in order when the primary hits quota/errors
+    gemini_vision_fallback_models: str = "gemini-2.0-flash-lite,gemini-1.5-flash,gemini-1.5-flash-8b"
 
     # Kilo Code (OpenAI-compatible gateway — can be used alongside Gemini)
     kilo_api_key: str = ""
