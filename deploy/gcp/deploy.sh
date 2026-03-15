@@ -7,6 +7,12 @@ REGION="${GOOGLE_CLOUD_REGION:-us-central1}"
 AGENT_IMAGE="gcr.io/${PROJECT_ID}/nexus-agent"
 FRONTEND_IMAGE="gcr.io/${PROJECT_ID}/nexus-frontend"
 
+# Resolve paths relative to this script (deploy/gcp/)
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT_DIR="$(cd "${SCRIPT_DIR}/../.." && pwd)"
+AGENT_DIR="${ROOT_DIR}/agent"
+FRONTEND_DIR="${ROOT_DIR}/frontend"
+
 # Firebase Web SDK values (public — safe to embed in frontend JS)
 FB_API_KEY="${FIREBASE_API_KEY:?Set FIREBASE_API_KEY}"
 FB_AUTH_DOMAIN="virtual-voice-agent-55414.firebaseapp.com"
@@ -22,7 +28,7 @@ echo ""
 
 # ── 1. Build & Push Agent Image ───────────────────────────────
 echo "Building agent image..."
-gcloud builds submit --project="${PROJECT_ID}" --tag="${AGENT_IMAGE}" ../agent/
+gcloud builds submit --project="${PROJECT_ID}" --tag="${AGENT_IMAGE}" "${AGENT_DIR}"
 
 # ── 2. Deploy Agent Service (must go first so we get its URL) ─
 echo "Deploying agent service..."
@@ -58,7 +64,7 @@ gcloud builds submit --project="${PROJECT_ID}" --tag="${FRONTEND_IMAGE}" \
   --build-arg="NEXT_PUBLIC_FIREBASE_APP_ID=${FB_APP_ID}" \
   --build-arg="NEXT_PUBLIC_USE_FIREBASE_EMULATORS=false" \
   --build-arg="NEXT_PUBLIC_AGENT_WS_URL=${AGENT_WS_URL}" \
-  ../frontend/
+  "${FRONTEND_DIR}"
 
 # ── 4. Deploy Frontend Service ────────────────────────────────
 echo "Deploying frontend service..."
