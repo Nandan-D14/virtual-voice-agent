@@ -181,6 +181,7 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [endingSessionId, setEndingSessionId] = useState<string | null>(null);
+  const [quota, setQuota] = useState<{ limit: number; used: number; remaining: number } | null>(null);
 
   const refreshDashboard = useCallback(async () => {
     if (!user) {
@@ -191,12 +192,13 @@ export default function DashboardPage() {
     setError(null);
 
     try {
-      const [statsRes, usageRes, sessionUsageRes, activeSessionsRes] =
+      const [statsRes, usageRes, sessionUsageRes, activeSessionsRes, quotaRes] =
         await Promise.all([
           authenticatedFetch("/api/v1/dashboard/stats"),
           authenticatedFetch("/api/v1/dashboard/usage?days=30"),
           authenticatedFetch("/api/v1/dashboard/sessions?limit=12"),
           authenticatedFetch("/api/v1/sessions/active"),
+          authenticatedFetch("/api/v1/user/quota"),
         ]);
 
       if (!statsRes.ok) {
@@ -220,6 +222,11 @@ export default function DashboardPage() {
       const activeBody = (await activeSessionsRes.json()) as {
         sessions: ActiveSession[];
       };
+
+      if (quotaRes.ok) {
+        const quotaBody = (await quotaRes.json()) as { limit: number; used: number; remaining: number };
+        setQuota(quotaBody);
+      }
 
       setStats({
         ...statsBody,
@@ -338,6 +345,63 @@ export default function DashboardPage() {
           <p>{error}</p>
         </div>
       ) : null}
+
+      {/* Token Quota Banner */}
+      {quota && (
+        <motion.div
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          className={`rounded-[28px] border p-6 shadow-[0_18px_50px_rgba(15,23,42,0.06)] backdrop-blur-sm ${
+            quota.remaining <= 0
+              ? "border-red-500/30 bg-red-50/80 dark:border-red-500/20 dark:bg-red-950/20"
+              : quota.used / quota.limit >= 0.8
+                ? "border-amber-500/30 bg-amber-50/80 dark:border-amber-500/20 dark:bg-amber-950/20"
+                : "border-zinc-200/80 bg-white/80 dark:border-white/8 dark:bg-white/[0.04]"
+          }`}
+        >
+          <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+            <div>
+              <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-zinc-500 dark:text-zinc-400">
+                Free Tier Usage
+              </p>
+              <p className="mt-1 text-2xl font-semibold tracking-tight text-zinc-950 dark:text-white">
+                {formatCompactNumber(quota.used)}{" "}
+                <span className="text-base font-normal text-zinc-500 dark:text-zinc-400">
+                  / {formatCompactNumber(quota.limit)} tokens
+                </span>
+              </p>
+              {quota.remaining <= 0 ? (
+                <p className="mt-1 text-sm text-red-600 dark:text-red-400 font-medium">
+                  Quota exhausted — upgrade to continue using NEXUS.
+                </p>
+              ) : quota.used / quota.limit >= 0.8 ? (
+                <p className="mt-1 text-sm text-amber-600 dark:text-amber-400">
+                  {formatNumber(quota.remaining)} tokens remaining
+                </p>
+              ) : (
+                <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
+                  {formatNumber(quota.remaining)} tokens remaining
+                </p>
+              )}
+            </div>
+            <div className="text-right text-sm text-zinc-500 dark:text-zinc-400">
+              {Math.min(100, Math.round((quota.used / quota.limit) * 100))}% used
+            </div>
+          </div>
+          <div className="mt-4 h-2 w-full rounded-full bg-zinc-200 dark:bg-zinc-800 overflow-hidden">
+            <div
+              className={`h-full rounded-full transition-all duration-700 ${
+                quota.remaining <= 0
+                  ? "bg-red-500"
+                  : quota.used / quota.limit >= 0.8
+                    ? "bg-amber-500"
+                    : "bg-cyan-500"
+              }`}
+              style={{ width: `${Math.min(100, (quota.used / quota.limit) * 100)}%` }}
+            />
+          </div>
+        </motion.div>
+      )}
 
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
         <StatCard

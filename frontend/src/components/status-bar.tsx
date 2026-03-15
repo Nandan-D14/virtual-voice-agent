@@ -5,6 +5,7 @@ type Phase = "idle" | "listening" | "thinking" | "acting" | "done";
 type Props = {
   phase: Phase;
   isConnected: boolean;
+  tokenQuota?: { limit: number; used: number; remaining: number } | null;
 };
 
 const STEPS: { key: Phase; label: string }[] = [
@@ -28,7 +29,16 @@ function getStepState(
   return "future";
 }
 
-export function StatusBar({ phase, isConnected }: Props) {
+function formatTokenCount(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
+  return String(n);
+}
+
+export function StatusBar({ phase, isConnected, tokenQuota }: Props) {
+  const pct = tokenQuota ? Math.min(100, (tokenQuota.used / tokenQuota.limit) * 100) : 0;
+  const isWarning = pct >= 80;
+  const isExceeded = tokenQuota ? tokenQuota.remaining <= 0 : false;
   return (
     <div className="flex items-center justify-between px-6 py-2 bg-card dark:bg-zinc-950 border-t border-card-border dark:border-zinc-800 text-[10px] font-bold uppercase tracking-[0.15em] glass relative z-30">
       {/* Phase steps */}
@@ -70,18 +80,36 @@ export function StatusBar({ phase, isConnected }: Props) {
         </div>
       </div>
 
-      {/* Stats/Connection */}
+      {/* Token Quota + Connection */}
       <div className="flex items-center gap-6">
-        <div className="hidden md:flex items-center gap-4 text-muted dark:text-zinc-600 border-r border-card-border dark:border-zinc-800 pr-6">
-          <div className="flex items-center gap-1.5">
-            <span className="text-[9px]">LATENCY</span>
-            <span className="text-foreground dark:text-zinc-400">24MS</span>
+        {tokenQuota && (
+          <div className="hidden md:flex items-center gap-3 text-muted dark:text-zinc-600 border-r border-card-border dark:border-zinc-800 pr-6">
+            <span className="text-[9px]">TOKENS</span>
+            <div className="flex items-center gap-2">
+              <div className="w-20 h-1.5 bg-zinc-200 dark:bg-zinc-800 rounded-full overflow-hidden">
+                <div
+                  className={`h-full rounded-full transition-all duration-500 ${
+                    isExceeded
+                      ? "bg-red-500"
+                      : isWarning
+                        ? "bg-amber-500"
+                        : "bg-cyan-500"
+                  }`}
+                  style={{ width: `${Math.min(100, pct)}%` }}
+                />
+              </div>
+              <span className={`text-[10px] font-mono ${
+                isExceeded
+                  ? "text-red-400"
+                  : isWarning
+                    ? "text-amber-400"
+                    : "text-foreground dark:text-zinc-400"
+              }`}>
+                {formatTokenCount(tokenQuota.used)}/{formatTokenCount(tokenQuota.limit)}
+              </span>
+            </div>
           </div>
-          <div className="flex items-center gap-1.5">
-            <span className="text-[9px]">UPTIME</span>
-            <span className="text-foreground dark:text-zinc-400">00:12:45</span>
-          </div>
-        </div>
+        )}
 
         <div className="flex items-center gap-2.5">
           <div className="flex flex-col items-end gap-0.5">

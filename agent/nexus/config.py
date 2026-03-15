@@ -30,7 +30,7 @@ class Settings(BaseSettings):
     google_cloud_region: str = "us-central1"
 
     # Gemini models
-    gemini_live_model: str = "gemini-2.5-flash-native-audio-preview-12-2025"
+    gemini_live_model: str = "gemini-2.0-flash-live-001"
     gemini_vision_model: str = "gemini-2.5-flash"
     # Fallback vision models tried in order when the primary hits quota/errors
     gemini_vision_fallback_models: str = "gemini-2.0-flash-lite,gemini-1.5-flash,gemini-1.5-flash-8b"
@@ -62,7 +62,7 @@ class Settings(BaseSettings):
     firestore_emulator_host: str = ""
 
     # Session
-    session_timeout_minutes: int = 15
+    session_timeout_minutes: int = 120
     jwt_secret: str = "dev-secret-change-in-production"
 
     # E2B Sandbox defaults
@@ -77,14 +77,24 @@ class Settings(BaseSettings):
     use_multi_agent: bool = True
     max_agent_turns: int = 30
 
+    # Token quota (per-user lifetime allowance for free tier)
+    default_token_limit: int = 100_000
+
 
 settings = Settings()
 
 
 def apply_runtime_env_overrides() -> None:
     """Expose env-file values to SDKs that read directly from process env."""
-    if settings.google_application_credentials and not os.environ.get("GOOGLE_APPLICATION_CREDENTIALS"):
-        os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = settings.google_application_credentials
+    # NOTE: We intentionally do NOT set GOOGLE_APPLICATION_CREDENTIALS in os.environ
+    # when Vertex AI is configured, because that env var is global — both Firebase
+    # Admin SDK and the genai/Vertex AI SDK read it.  The Firebase SA key is from a
+    # different project and has no Vertex AI permissions.  Instead, Firebase Admin is
+    # initialized with explicit credentials in firebase.py, and genai uses ADC.
+    if settings.google_application_credentials and not settings.google_project_id:
+        # API-key mode (no Vertex AI) — safe to export for Firebase
+        if not os.environ.get("GOOGLE_APPLICATION_CREDENTIALS"):
+            os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = settings.google_application_credentials
 
     if settings.firebase_auth_emulator_host and not os.environ.get("FIREBASE_AUTH_EMULATOR_HOST"):
         os.environ["FIREBASE_AUTH_EMULATOR_HOST"] = settings.firebase_auth_emulator_host
@@ -95,6 +105,10 @@ def apply_runtime_env_overrides() -> None:
     project_id = settings.firebase_project_id or settings.google_project_id
     if project_id:
         os.environ.setdefault("GCLOUD_PROJECT", project_id)
+
+    # Expose Google API key so ADK's internal genai.Client() can find it
+    if settings.google_api_key and not os.environ.get("GOOGLE_API_KEY"):
+        os.environ["GOOGLE_API_KEY"] = settings.google_api_key
 
     # Vertex AI SDK reads these from env
     if settings.google_project_id:

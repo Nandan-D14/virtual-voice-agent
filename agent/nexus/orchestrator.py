@@ -11,6 +11,7 @@ from starlette.websockets import WebSocket
 from nexus.agent import create_agent, create_multi_agent, create_runner, run_agent_turn
 from nexus.background_tasks import BackgroundTaskManager
 from nexus.history_repository import FirestoreHistoryRepository
+from nexus.sandbox import SandboxDeadError
 from nexus.tools._context import set_sandbox, set_bg_task_manager
 from nexus.config import settings
 from nexus.prompts.system import SYSTEM_PROMPT
@@ -24,6 +25,10 @@ logger = logging.getLogger(__name__)
 
 class _AgentStopped(Exception):
     """Raised inside the event callback to break out of the ADK agent loop."""
+
+
+class QuotaExceededError(Exception):
+    """Raised when the user's token quota has been exhausted."""
 
 
 class NexusOrchestrator:
@@ -69,18 +74,20 @@ class NexusOrchestrator:
         self._agent_task: asyncio.Task | None = None
         self._stop_requested: bool = False
 
+        # Voice is lazy — only connects when user explicitly starts mic
+        self._voice_started = asyncio.Event()
+
     async def initialize(self) -> None:
-        """Set up voice connection and ADK session."""
+        """Set up ADK session. Voice connection is deferred until user starts mic."""
         # Bind sandbox and bg task manager to tool context
         set_sandbox(self.session.sandbox)
         set_bg_task_manager(self.bg_task_manager)
 
-        # Connect to Gemini Live in the background so text sessions become ready immediately.
+        # Voice is NOT connected here — deferred until start_voice() is called
         if self.voice:
-            self._voice_connect_task = asyncio.create_task(self._connect_voice())
+            logger.info("Voice available — waiting for user to start mic")
         else:
-            logger.info("No Google API key — voice disabled, text input works")
-            self._voice_connected = False
+            logger.info("No Google credentials — voice disabled, text input works")
 
         # Create ADK session
         adk_session = await self._session_service.create_session(
@@ -98,6 +105,12 @@ class NexusOrchestrator:
                 "type": "vnc_url",
                 "url": self.session.stream_url,
             })
+        # Tell frontend voice is available but not yet connected
+        await self._send_json({
+            "type": "voice_status",
+            "status": "available" if self.voice else "unavailable",
+            "message": "Voice ready — click mic to connect." if self.voice else "Voice unavailable (no credentials).",
+        })
 
     async def handle_user_audio(self, pcm_data: bytes) -> None:
         """Forward mic audio to Gemini Live."""
@@ -116,6 +129,47 @@ class NexusOrchestrator:
                 self._schedule_voice_reconnect("sending user audio")
                 return
             raise
+
+    async def start_voice(self) -> None:
+        """Connect to Gemini Live on demand (triggered by user clicking mic)."""
+        if not self.voice:
+            await self._send_json({
+                "type": "voice_status",
+                "status": "unavailable",
+                "message": "Voice is not available (no credentials configured).",
+            })
+            return
+
+        if self._is_voice_ready():
+            await self._send_json({
+                "type": "voice_status",
+                "status": "connected",
+                "message": "Voice already connected.",
+            })
+            return
+
+        await self._send_json({
+            "type": "voice_status",
+            "status": "connecting",
+            "message": "Connecting voice...",
+        })
+
+        self._voice_connect_task = asyncio.create_task(self._connect_voice())
+        await self._voice_connect_task
+
+        if self._is_voice_ready():
+            self._voice_started.set()
+            await self._send_json({
+                "type": "voice_status",
+                "status": "connected",
+                "message": "Voice connected.",
+            })
+        else:
+            await self._send_json({
+                "type": "voice_status",
+                "status": "disconnected",
+                "message": "Voice connection failed. Text input still works.",
+            })
 
     async def handle_text_input(self, text: str) -> None:
         """Handle direct text input (bypass voice)."""
@@ -136,9 +190,33 @@ class NexusOrchestrator:
     async def handle_analyze_screen(self) -> None:
         """Take screenshot and send analysis to frontend."""
         sandbox = self.session.sandbox
+
+        # Auto-reconnect sandbox if it died
+        if not sandbox.is_alive:
+            reconnected = await self._reconnect_sandbox()
+            if not reconnected:
+                await self._send_json({
+                    "type": "agent_screenshot",
+                    "error": "Sandbox is not running and could not be reconnected.",
+                })
+                return
+            sandbox = self.session.sandbox
+
         try:
             loop = asyncio.get_running_loop()
             img_b64 = await loop.run_in_executor(None, sandbox.screenshot_base64)
+        except SandboxDeadError:
+            logger.warning("Sandbox died during screenshot for session %s — reconnecting", self.session.id)
+            reconnected = await self._reconnect_sandbox()
+            if reconnected:
+                try:
+                    img_b64 = await loop.run_in_executor(None, self.session.sandbox.screenshot_base64)
+                except Exception:
+                    await self._send_json({"type": "agent_screenshot", "error": "Screenshot failed after reconnect"})
+                    return
+            else:
+                await self._send_json({"type": "agent_screenshot", "error": "Sandbox died and could not reconnect"})
+                return
         except Exception as exc:
             logger.exception("Screenshot capture failed: %s", exc)
             await self._send_json({
@@ -168,14 +246,17 @@ class NexusOrchestrator:
     async def run_voice_receive_loop(self) -> None:
         """Background task: read from Gemini Live, forward to frontend.
 
-        Includes exponential-backoff reconnection — up to 3 retries on transient
-        errors (e.g. Gemini Live 1011 service unavailable).
+        Waits for start_voice() to be called, then loops with exponential-backoff
+        reconnection — up to 3 retries on transient errors.
         """
-        if self._voice_connect_task:
-            await self._voice_connect_task
-
         if not self.voice:
             return
+
+        # Wait until user explicitly starts voice
+        await self._voice_started.wait()
+
+        if self._voice_connect_task:
+            await self._voice_connect_task
 
         if not self._is_voice_ready():
             if not await self._start_or_join_voice_reconnect("starting voice session"):
@@ -243,6 +324,77 @@ class NexusOrchestrator:
 
     # ── Private ────────────────────────────────────────────────
 
+    _RATE_LIMIT_MAX_RETRIES = 3
+    _RATE_LIMIT_PATTERNS = ("429", "RESOURCE_EXHAUSTED", "quota", "rate limit", "too many requests")
+
+    def _is_rate_limit_error(self, exc: BaseException) -> bool:
+        msg = str(exc).lower()
+        return any(p.lower() in msg for p in self._RATE_LIMIT_PATTERNS)
+
+    async def _run_agent_with_retry(self, message: str):
+        """Run agent turn with automatic retry on rate-limit (429) errors."""
+        last_exc: Exception | None = None
+        for attempt in range(1, self._RATE_LIMIT_MAX_RETRIES + 1):
+            try:
+                return await run_agent_turn(
+                    runner=self._runner,
+                    session_service=self._session_service,
+                    session_id=self._adk_session_id,
+                    user_id=self._user_id,
+                    message=message,
+                    event_callback=self._on_agent_event,
+                )
+            except _AgentStopped:
+                raise
+            except Exception as exc:
+                if not self._is_rate_limit_error(exc):
+                    raise
+                last_exc = exc
+                wait = 15 * attempt  # 15s, 30s, 45s
+                logger.warning(
+                    "Rate limited (attempt %d/%d) for session %s — waiting %ds: %s",
+                    attempt, self._RATE_LIMIT_MAX_RETRIES, self.session.id, wait, exc,
+                )
+                await self._send_json({
+                    "type": "agent_thinking",
+                    "content": f"Rate limited — retrying in {wait}s (attempt {attempt}/{self._RATE_LIMIT_MAX_RETRIES})...",
+                })
+                await asyncio.sleep(wait)
+
+        raise RuntimeError(f"Rate limit exceeded after {self._RATE_LIMIT_MAX_RETRIES} retries: {last_exc}")
+
+    async def _reconnect_sandbox(self) -> bool:
+        """Attempt to create a new sandbox when the current one has died.
+
+        Returns True if reconnect succeeded, False otherwise.
+        """
+        logger.info("Attempting sandbox reconnect for session %s", self.session.id)
+        await self._send_json({"type": "sandbox_status", "status": "reconnecting"})
+
+        try:
+            loop = asyncio.get_running_loop()
+            info = await loop.run_in_executor(None, self.session.sandbox.create)
+            self.session.sandbox_id = info["sandbox_id"]
+            self.session.stream_url = info["stream_url"]
+            # Re-bind the new sandbox to the tool context
+            set_sandbox(self.session.sandbox)
+            await self._send_json({"type": "sandbox_status", "status": "ready"})
+            await self._send_json({"type": "vnc_url", "url": self.session.stream_url})
+            logger.info(
+                "Sandbox reconnected for session %s (new stream_url=%s)",
+                self.session.id,
+                self.session.stream_url,
+            )
+            return True
+        except Exception as exc:
+            logger.exception("Sandbox reconnect failed for session %s: %s", self.session.id, exc)
+            await self._send_json({
+                "type": "sandbox_status",
+                "status": "error",
+                "message": f"Failed to reconnect sandbox: {exc}",
+            })
+            return False
+
     async def _run_agent_tracked(self, message: str) -> None:
         """Wrap _run_agent in a cancellable task and await it."""
         self._stop_requested = False
@@ -258,23 +410,52 @@ class NexusOrchestrator:
         """Run an ADK agent turn and stream events to frontend."""
         self.session.touch()
 
+        # Check token quota before running agent
+        if self.history_repository:
+            try:
+                quota = await self.history_repository.get_user_quota(self.session.owner_id)
+                if quota["remaining"] <= 0:
+                    await self._send_json({
+                        "type": "error",
+                        "code": "QUOTA_EXCEEDED",
+                        "message": f"You've used all {quota['limit']:,} tokens in your free quota. Please upgrade to continue.",
+                    })
+                    await self._send_json({
+                        "type": "quota_update",
+                        "limit": quota["limit"],
+                        "used": quota["used"],
+                        "remaining": 0,
+                    })
+                    return
+            except Exception:
+                logger.debug("Quota check failed, allowing turn", exc_info=True)
+
         # Extend sandbox timeout before each agent turn to prevent mid-task death
         try:
             self.session.sandbox.extend_timeout(300)
         except Exception:
             logger.debug("Could not extend sandbox timeout", exc_info=True)
 
+        # Auto-reconnect sandbox if it died before this turn
+        if not self.session.sandbox.is_alive:
+            reconnected = await self._reconnect_sandbox()
+            if not reconnected:
+                await self._send_json({
+                    "type": "error",
+                    "code": "SANDBOX_DEAD",
+                    "message": "Sandbox is not running and could not be reconnected. Please start a new session.",
+                })
+                return
+
         try:
-            result = await run_agent_turn(
-                runner=self._runner,
-                session_service=self._session_service,
-                session_id=self._adk_session_id,
-                user_id=self._user_id,
-                message=message,
-                event_callback=self._on_agent_event,
-            )
+            result = await self._run_agent_with_retry(message)
             for usage in result.usage_records:
                 await self._persist_token_usage(usage)
+
+            # Check if sandbox died during the agent turn
+            if not self.session.sandbox.is_alive:
+                logger.warning("Sandbox died during agent turn for session %s — reconnecting", self.session.id)
+                await self._reconnect_sandbox()
 
             if result.response:
                 # Send agent text response
@@ -598,6 +779,17 @@ class NexusOrchestrator:
                 output_tokens=usage.output_tokens,
                 total_tokens=usage.total_tokens,
             )
+            # Increment user-level quota and notify frontend
+            if usage.total_tokens > 0:
+                quota = await self.history_repository.increment_user_token_usage(
+                    self.session.owner_id, usage.total_tokens
+                )
+                await self._send_json({
+                    "type": "quota_update",
+                    "limit": quota["limit"],
+                    "used": quota["used"],
+                    "remaining": quota["remaining"],
+                })
         except Exception:
             logger.exception(
                 "Failed to persist token usage for session %s from %s",

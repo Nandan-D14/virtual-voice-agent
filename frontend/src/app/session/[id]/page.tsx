@@ -80,8 +80,13 @@ export default function SessionPage() {
   const [activeAgent, setActiveAgent] = useState<string>("nexus");
   const [agentStatus, setAgentStatus] = useState("");
   const [voiceStatus, setVoiceStatus] = useState<
-    "connected" | "reconnecting" | "disconnected"
-  >("connected");
+    "available" | "unavailable" | "connecting" | "connected" | "reconnecting" | "disconnected"
+  >("disconnected");
+  const [tokenQuota, setTokenQuota] = useState<{
+    limit: number;
+    used: number;
+    remaining: number;
+  } | null>(null);
 
   const audioPlayer = useRef(new AudioPlayer());
   const inputRef = useRef<HTMLInputElement>(null);
@@ -281,6 +286,9 @@ export default function SessionPage() {
 
       case "voice_status":
         if (
+          msg.status === "available" ||
+          msg.status === "unavailable" ||
+          msg.status === "connecting" ||
           msg.status === "connected" ||
           msg.status === "reconnecting" ||
           msg.status === "disconnected"
@@ -300,6 +308,14 @@ export default function SessionPage() {
           ...prev,
           { kind: "event", type: msg.type, code: msg.code, message: msg.message, ts },
         ]);
+        break;
+
+      case "quota_update":
+        setTokenQuota({
+          limit: msg.limit,
+          used: msg.used,
+          remaining: msg.remaining,
+        });
         break;
 
       case "pong":
@@ -337,7 +353,7 @@ export default function SessionPage() {
   }, [sessionId, stopMic]);
 
   useEffect(() => {
-    if (voiceStatus !== "connected" && isRecording) {
+    if (isRecording && (voiceStatus === "disconnected" || voiceStatus === "reconnecting")) {
       stopMic();
     }
   }, [isRecording, stopMic, voiceStatus]);
@@ -491,12 +507,12 @@ export default function SessionPage() {
       setPendingText(null);
     }
 
-    if (pendingMicStart) {
+    if (pendingMicStart && voiceStatus === "connected") {
       startMic();
       setPendingMicStart(false);
       setPhase("listening");
     }
-  }, [isConnected, pendingMicStart, pendingText, sendJson, startMic, viewMode]);
+  }, [isConnected, pendingMicStart, pendingText, sendJson, startMic, viewMode, voiceStatus]);
 
   const startSession = useCallback(
     async (options?: {
@@ -577,7 +593,20 @@ export default function SessionPage() {
       void startSession({ startMic: true });
       return;
     }
-    if (voiceStatus !== "connected") return;
+    // Voice unavailable — no credentials on backend
+    if (voiceStatus === "unavailable") return;
+    // Voice connecting — wait
+    if (voiceStatus === "connecting" || voiceStatus === "reconnecting") return;
+
+    // Voice available but not yet connected — trigger connection first
+    if (voiceStatus === "available" || voiceStatus === "disconnected") {
+      sendJson({ type: "start_voice" });
+      setPendingMicStart(true);
+      setPhase("listening");
+      return;
+    }
+
+    // Voice is connected
     if (isRecording) {
       stopMic();
       setPhase("thinking");
@@ -603,6 +632,7 @@ export default function SessionPage() {
     isConnected,
     isNewSession,
     isRecording,
+    sendJson,
     startMic,
     startSession,
     stopMic,
@@ -1090,7 +1120,7 @@ export default function SessionPage() {
             </div>
 
             {/* ─── Footer ─── */}
-            <StatusBar phase={phase} isConnected={viewMode === "live" && isConnected} />
+            <StatusBar phase={phase} isConnected={viewMode === "live" && isConnected} tokenQuota={tokenQuota} />
 
             {(pageError || error) && (
               <div className="border-t border-red-500/20 bg-red-950/20 px-4 py-2 text-sm text-red-300">

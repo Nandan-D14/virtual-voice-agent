@@ -6,6 +6,7 @@ from functools import lru_cache
 
 import firebase_admin
 from firebase_admin import auth as firebase_auth
+from firebase_admin import credentials as firebase_credentials
 from firebase_admin import firestore
 
 from nexus.config import apply_runtime_env_overrides, settings
@@ -13,7 +14,14 @@ from nexus.config import apply_runtime_env_overrides, settings
 
 @lru_cache(maxsize=1)
 def get_firebase_app():
-    """Initialize Firebase Admin once using ADC or emulator config."""
+    """Initialize Firebase Admin once.
+
+    Uses explicit service-account credentials when a key file is configured,
+    so that GOOGLE_APPLICATION_CREDENTIALS is NOT set globally (which would
+    leak the Firebase SA into the Vertex AI / genai SDK and cause 403s).
+    Falls back to ADC when no key file is provided (e.g. on Cloud Run where
+    the Compute Engine SA handles both Firebase and Vertex AI).
+    """
     apply_runtime_env_overrides()
 
     project_id = settings.firebase_project_id
@@ -25,8 +33,16 @@ def get_firebase_app():
     except ValueError:
         pass
 
+    # Build credential: explicit key file if available, otherwise ADC
+    cred = None
+    if settings.google_application_credentials:
+        cred = firebase_credentials.Certificate(settings.google_application_credentials)
+
     try:
-        return firebase_admin.initialize_app(options={"projectId": project_id})
+        return firebase_admin.initialize_app(
+            credential=cred,
+            options={"projectId": project_id},
+        )
     except ValueError:
         # Another thread/coroutine initialized the app concurrently
         return firebase_admin.get_app()
