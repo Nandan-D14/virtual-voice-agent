@@ -21,6 +21,7 @@ export type WsMessage =
   | { type: "bg_task_progress"; task_id: string; progress: number; message: string }
   | { type: "bg_task_complete"; task_id: string; success: boolean; result: string }
   | { type: "voice_status"; status: string; message: string }
+  | { type: "quota_update"; limit: number; used: number; remaining: number }
   | { type: "error"; code: string; message: string }
   | { type: "pong" };
 
@@ -30,6 +31,7 @@ export type WsCommand =
   | { type: "text_input"; text: string }
   | { type: "analyze_screen" }
   | { type: "stop_agent" }
+  | { type: "start_voice" }
   | { type: "permission_response"; task_id: string; approved: boolean }
   | { type: "ping" };
 
@@ -104,6 +106,7 @@ export type PermissionRequestMessage = Extract<WsMessage, { type: "permission_re
 export type BgTaskProgressMessage = Extract<WsMessage, { type: "bg_task_progress" }>;
 export type BgTaskCompleteMessage = Extract<WsMessage, { type: "bg_task_complete" }>;
 export type ErrorMessage = Extract<WsMessage, { type: "error" }>;
+export type QuotaUpdateMessage = Extract<WsMessage, { type: "quota_update" }>;
 
 // ── Activity feed item ─────────────────────────────────────────────
 

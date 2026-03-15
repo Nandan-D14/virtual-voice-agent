@@ -93,6 +93,9 @@ async def handle_websocket(
                             # Run as background task so stop_agent can interrupt
                             _track(asyncio.create_task(orchestrator.handle_text_input(text)))
 
+                    elif msg_type == "start_voice":
+                        _track(asyncio.create_task(orchestrator.start_voice()))
+
                     elif msg_type == "analyze_screen":
                         _track(asyncio.create_task(orchestrator.handle_analyze_screen()))
 

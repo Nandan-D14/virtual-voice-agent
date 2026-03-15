@@ -10,7 +10,7 @@ from fastapi import Depends, FastAPI, HTTPException, Query, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
 
 from nexus.auth import AuthenticatedUser, require_current_user
-from nexus.config import settings
+from nexus.config import settings, apply_runtime_env_overrides
 from nexus.history_repository import FirestoreHistoryRepository
 from nexus.models import ErrorResponse, HealthResponse, SessionInfo, SessionResponse, StatusMessage
 from nexus.session import SessionManager
@@ -42,6 +42,7 @@ def _live_session_payloads(user_id: str) -> list[dict[str, Any]]:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Startup / shutdown lifecycle."""
+    apply_runtime_env_overrides()  # ensure GOOGLE_API_KEY / Vertex AI env vars are set before any ADK agent is created
     logger.info("NEXUS agent service starting...")
     session_manager.start_cleanup()
     yield
@@ -78,6 +79,15 @@ async def health():
 async def create_session(user: AuthenticatedUser = Depends(require_current_user)):
     """Create a new NEXUS session. Sandbox boot is deferred until activation."""
     await history_repository.upsert_user(user)
+
+    # Check token quota before allowing new session
+    quota = await history_repository.get_user_quota(user.uid)
+    if quota["remaining"] <= 0:
+        raise HTTPException(
+            status_code=403,
+            detail=f"Token quota exceeded. You've used {quota['used']:,} of {quota['limit']:,} tokens.",
+        )
+
     try:
         session = await session_manager.create_session(owner_id=user.uid)
     except RuntimeError as exc:
@@ -222,6 +232,13 @@ async def get_user_settings(user: AuthenticatedUser = Depends(require_current_us
 async def update_user_settings(updates: dict[str, Any], user: AuthenticatedUser = Depends(require_current_user)):
     await history_repository.update_user_settings(user.uid, updates)
     return {"status": "ok"}
+
+
+@app.get("/api/v1/user/quota")
+async def get_user_quota(user: AuthenticatedUser = Depends(require_current_user)):
+    """Get the user's token quota (limit, used, remaining)."""
+    quota = await history_repository.get_user_quota(user.uid)
+    return quota
 
 # ── WebSocket Endpoint ──────────────────────────────────────────
 

@@ -13,6 +13,7 @@ from google.api_core.exceptions import AlreadyExists
 from google.cloud.firestore_v1 import FieldFilter
 
 from nexus.auth import AuthenticatedUser
+from nexus.config import settings
 from nexus.firebase import get_firestore_client
 
 if TYPE_CHECKING:
@@ -219,6 +220,13 @@ class FirestoreHistoryRepository:
     async def update_user_settings(self, uid: str, updates: dict[str, Any]) -> None:
         return await asyncio.to_thread(self._update_user_settings_sync, uid, updates)
 
+    async def get_user_quota(self, uid: str) -> dict[str, Any]:
+        return await asyncio.to_thread(self._get_user_quota_sync, uid)
+
+    async def increment_user_token_usage(self, uid: str, tokens: int) -> dict[str, Any]:
+        """Atomically increment user-level token usage. Returns updated quota."""
+        return await asyncio.to_thread(self._increment_user_token_usage_sync, uid, tokens)
+
     def _upsert_user_sync(self, user: AuthenticatedUser) -> None:
         now = utcnow()
         ref = self._db.collection("users").document(user.uid)
@@ -230,8 +238,13 @@ class FirestoreHistoryRepository:
             "lastLoginAt": now,
         }
         try:
-            # Atomic create — sets createdAt only when the document is new.
-            ref.create({**base_payload, "createdAt": now})
+            # Atomic create — sets createdAt and token quota only when the document is new.
+            ref.create({
+                **base_payload,
+                "createdAt": now,
+                "tokenUsage": 0,
+                "tokenLimit": settings.default_token_limit,
+            })
         except AlreadyExists:
             # Document already exists; update mutable fields only.
             ref.set(base_payload, merge=True)
@@ -667,4 +680,29 @@ class FirestoreHistoryRepository:
                 else:
                     nested_updates[k] = v
             ref.set(nested_updates, merge=True)
+
+    def _get_user_quota_sync(self, uid: str) -> dict[str, Any]:
+        doc = self._db.collection("users").document(uid).get()
+        if not doc.exists:
+            return {
+                "limit": settings.default_token_limit,
+                "used": 0,
+                "remaining": settings.default_token_limit,
+            }
+        data = doc.to_dict() or {}
+        limit = int(data.get("tokenLimit", settings.default_token_limit) or settings.default_token_limit)
+        used = int(data.get("tokenUsage", 0) or 0)
+        return {
+            "limit": limit,
+            "used": used,
+            "remaining": max(0, limit - used),
+        }
+
+    def _increment_user_token_usage_sync(self, uid: str, tokens: int) -> dict[str, Any]:
+        if tokens <= 0:
+            return self._get_user_quota_sync(uid)
+
+        ref = self._db.collection("users").document(uid)
+        ref.update({"tokenUsage": firestore.Increment(tokens)})
+        return self._get_user_quota_sync(uid)
 
