@@ -157,30 +157,26 @@ export function UnifiedChatPanel({
   return (
     <div
       ref={scrollRef}
-      className="overflow-y-auto h-full custom-scrollbar flex flex-col px-4 py-6"
+      className="overflow-y-auto h-full custom-scrollbar flex flex-col px-4 py-8"
     >
-      <div className="mx-auto max-w-3xl w-full flex flex-col gap-1.5 pb-4">
-        <div className="sticky top-0 z-10 pb-4">
-          <div className="flex items-center justify-between rounded-xl border border-card-border dark:border-zinc-800 bg-background/80 dark:bg-[#0b0b0f]/80 backdrop-blur px-3 py-2">
-            <div className="text-[10px] uppercase tracking-[0.2em] text-muted dark:text-zinc-500 font-bold">
-              Conversation
-            </div>
-            <div className="flex items-center gap-1 rounded-lg border border-card-border dark:border-zinc-800 bg-white/70 dark:bg-black/40 p-1">
-              {(["all", "chat", "logs"] as const).map((mode) => (
-                <button
-                  key={mode}
-                  type="button"
-                  onClick={() => setFilter(mode)}
-                  className={`px-2.5 py-1 text-[10px] font-bold uppercase tracking-widest rounded-md transition-colors ${
-                    filter === mode
-                      ? "bg-cyan-500/20 text-cyan-300"
-                      : "text-muted dark:text-zinc-500 hover:text-foreground dark:hover:text-zinc-300"
-                  }`}
-                >
-                  {mode}
-                </button>
-              ))}
-            </div>
+      <div className="mx-auto max-w-3xl w-full flex flex-col gap-2 pb-4">
+        {/* Optional Filter (hidden/minimal to match clean layout) */}
+        <div className="flex justify-end pb-4 opacity-50 hover:opacity-100 transition-opacity">
+          <div className="flex items-center gap-1">
+            {(["all", "chat", "logs"] as const).map((mode) => (
+              <button
+                key={mode}
+                type="button"
+                onClick={() => setFilter(mode)}
+                className={`px-2.5 py-1 text-[10px] font-bold uppercase tracking-widest rounded-md transition-colors ${
+                  filter === mode
+                    ? "bg-zinc-200 dark:bg-zinc-800 text-zinc-800 dark:text-zinc-200"
+                    : "text-zinc-400 dark:text-zinc-500 hover:text-zinc-600 dark:hover:text-zinc-300"
+                }`}
+              >
+                {mode}
+              </button>
+            ))}
           </div>
         </div>
 
@@ -287,57 +283,46 @@ function MessageBubble({
     }
   };
 
-  return (
-    <div
-      className={`flex flex-col py-2 px-4 ${
-        isUser ? "items-end" : "items-start"
-      }`}
-    >
-      {isUser ? (
-        <div className="flex items-center gap-2 mb-1 px-1">
-          <span className="text-[9px] font-black uppercase tracking-[0.2em] text-cyan-500">
-            You
-          </span>
-          <span className="text-[9px] text-muted dark:text-zinc-600 font-mono">
-            {formatTime(ts)}
-          </span>
+  if (isUser) {
+    return (
+      <div className="flex w-full justify-end py-4 px-2">
+        <div className="max-w-[80%] rounded-3xl bg-[#f4f4f5] dark:bg-[#212126] px-5 py-3 text-[15px] leading-relaxed text-zinc-900 dark:text-zinc-100 shadow-sm border border-zinc-200 dark:border-[#2f2f35]">
+          <ChatMarkdown content={text} />
         </div>
-      ) : (
-        <div className="flex items-center gap-2 mb-2 px-1">
-          <div className="h-6 w-6 rounded-full bg-emerald-500/20 text-emerald-300 flex items-center justify-center text-[11px] font-bold">
-            N
-          </div>
-          <div className="flex items-center gap-2">
-            <span className="text-sm font-semibold text-foreground dark:text-zinc-100">
-              NEXUS
-            </span>
-            <span className="text-[9px] uppercase tracking-widest px-2 py-0.5 rounded-full border border-emerald-500/30 text-emerald-300 bg-emerald-500/10">
-              Lite
-            </span>
-            <span className="text-[9px] text-muted dark:text-zinc-600 font-mono">
-              {formatTime(ts)}
-            </span>
-          </div>
-        </div>
-      )}
+      </div>
+    );
+  }
 
-      {/* Bubble */}
-      <div
-        className={`group relative max-w-[85%] px-4 py-3 rounded-2xl text-sm leading-relaxed transition-colors duration-200 ${
-          isUser
-            ? "bg-zinc-800/80 text-zinc-100 border border-cyan-500/25 rounded-tr-none"
-            : "bg-zinc-900/70 text-zinc-100 border border-white/5 rounded-tl-none shadow-sm dark:shadow-none"
-        }`}
-      >
-        <button
-          type="button"
-          onClick={handleCopy}
-          className="absolute -top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity text-[9px] uppercase tracking-widest font-bold px-2 py-1 rounded-md border border-card-border dark:border-zinc-800 bg-background/80 dark:bg-black/60 text-muted dark:text-zinc-400 hover:text-foreground dark:hover:text-zinc-200"
-        >
-          {copied ? "Copied" : "Copy"}
-        </button>
+  return (
+    <div className="flex flex-col items-start py-4 px-2 group relative">
+      <div className="flex items-center gap-3 mb-2">
+        <div className="flex h-6 w-6 items-center justify-center text-zinc-800 dark:text-zinc-200">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-5 h-5">
+            <path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" />
+          </svg>
+        </div>
+        <div className="flex items-center gap-2">
+          <span className="text-[15px] font-medium text-zinc-800 dark:text-zinc-200">
+            Nexus
+          </span>
+          <span className="rounded-md border border-zinc-200 dark:border-zinc-700 bg-zinc-100 dark:bg-zinc-800/80 px-1.5 py-0.5 text-[10px] font-medium text-zinc-500">
+            Lite
+          </span>
+        </div>
+      </div>
+
+      {/* Bubble text (transparent bg, normal flush left) */}
+      <div className="w-full pl-9 pr-4 text-[15px] leading-relaxed text-zinc-700 dark:text-zinc-300">
         <ChatMarkdown content={text} />
       </div>
+
+      <button
+        type="button"
+        onClick={handleCopy}
+        className="absolute top-4 right-4 opacity-0 group-hover:opacity-100 transition-opacity text-[10px] uppercase tracking-widest font-bold px-2 py-1 rounded-md border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-[#1a1a1c] text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-200"
+      >
+        {copied ? "Copied" : "Copy"}
+      </button>
     </div>
   );
 }
@@ -383,23 +368,22 @@ function EventGroupCard({
   const count = items.length;
 
   return (
-    <div className="px-4 py-2">
-      <details className="chat-log-card" open>
-        <summary className="chat-log-summary">
+    <div className="px-4 py-1.5 opacity-60 hover:opacity-100 transition-opacity my-1">
+      <details className="bg-transparent border-none w-full outline-none [&_summary::-webkit-details-marker]:hidden" open>
+        <summary className="flex items-center justify-between cursor-pointer list-none py-2 px-3 rounded-xl hover:bg-zinc-100 dark:hover:bg-zinc-800/50 transition-colors w-fit">
           <div className="flex items-center gap-3">
-            <span className="chat-log-dot" />
-            <div>
-              <div className="text-xs font-semibold text-foreground dark:text-zinc-100">
+            <span className="w-2 h-2 rounded-full bg-zinc-400 dark:bg-zinc-600 animate-pulse" />
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-medium text-zinc-600 dark:text-zinc-400">
                 {title}
-              </div>
-              <div className="text-[10px] uppercase tracking-widest text-muted dark:text-zinc-500">
+              </span>
+              <span className="text-[10px] bg-zinc-200 dark:bg-zinc-800 text-zinc-500 rounded px-1.5 py-0.5">
                 {count} step{count === 1 ? "" : "s"}
-              </div>
+              </span>
             </div>
           </div>
-          <span className="chat-log-chevron" aria-hidden="true" />
         </summary>
-        <div className="chat-log-body">
+        <div className="pl-6 pr-4 py-2 border-l border-zinc-200 dark:border-zinc-800 ml-4 mt-2 mb-2 flex flex-col gap-3">
           {items.map((item, index) => (
             <EventRow
               key={`${item.type}-${item.ts}-${index}`}
@@ -1120,25 +1104,30 @@ function DelegationBadge({
 }
 
 /* ------------------------------------------------------------------ */
-/*  Thinking indicator (three animated dots)                           */
+/*  Thinking indicator (spinner)                                       */
 /* ------------------------------------------------------------------ */
 
 function ThinkingIndicator() {
   return (
-    <div className="flex flex-col items-start py-2 px-4">
-      <div className="flex items-center gap-2 mb-1 px-1">
-        <span className="text-[9px] font-black text-emerald-500 uppercase tracking-[0.2em]">
-          NEXUS
-        </span>
-      </div>
-      <div className="flex items-center gap-3 px-4 py-2.5 rounded-2xl rounded-tl-none bg-white dark:bg-zinc-900 border border-card-border dark:border-zinc-800 shadow-sm dark:shadow-none">
-        <div className="flex items-center gap-1">
-          <span className="block w-1.5 h-1.5 rounded-full bg-emerald-500 ucp-dot-1" />
-          <span className="block w-1.5 h-1.5 rounded-full bg-emerald-500 ucp-dot-2" />
-          <span className="block w-1.5 h-1.5 rounded-full bg-emerald-500 ucp-dot-3" />
-        </div>
-        <span className="text-[10px] font-bold text-zinc-400 dark:text-zinc-500 uppercase tracking-widest">
-          Processing...
+    <div className="flex flex-col items-start py-4 px-2">
+      <div className="flex items-center gap-3 text-amber-500">
+        <svg
+          className="w-4 h-4 animate-[spin_3s_linear_infinite]"
+          viewBox="0 0 24 24"
+          fill="none"
+        >
+          <circle
+            cx="12"
+            cy="12"
+            r="10"
+            stroke="currentColor"
+            strokeWidth="2.5"
+            strokeDasharray="6 6"
+            strokeLinecap="round"
+          />
+        </svg>
+        <span className="text-[14px] font-medium">
+          Nexus will continue working after your reply
         </span>
       </div>
     </div>

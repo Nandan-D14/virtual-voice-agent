@@ -27,7 +27,7 @@ class Settings(BaseSettings):
     # Google / Gemini
     google_api_key: str = ""
     google_project_id: str = ""
-    google_cloud_region: str = "us-central1"
+    google_cloud_region: str = "global"
 
     # Gemini models
     gemini_live_model: str = "gemini-live-2.5-flash-preview-native-audio-09-2025"

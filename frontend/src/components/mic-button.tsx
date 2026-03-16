@@ -41,22 +41,22 @@ export function MicButton({ isRecording, onStart, onStop, disabled }: Props) {
       aria-label={isRecording ? "Stop recording" : "Start recording"}
       className={`
         relative flex items-center justify-center
-        w-9 h-9 rounded-xl
+        w-8 h-8 rounded-full
         transition-all duration-300 focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500/40
         ${
           disabled
-            ? "bg-zinc-200/50 dark:bg-zinc-800/50 text-muted dark:text-zinc-700 cursor-not-allowed"
+            ? "text-zinc-400 dark:text-zinc-600 cursor-not-allowed"
             : isRecording
-              ? "bg-red-500/20 text-red-400 border border-red-500/30 shadow-[0_0_20px_rgba(239,68,68,0.2)]"
-              : "bg-zinc-100 dark:bg-zinc-800 border-zinc-300 dark:border-zinc-700 text-muted dark:text-zinc-400 hover:border-cyan-500/50 hover:text-cyan-600 dark:hover:text-cyan-400 active:scale-95"
+              ? "bg-red-500 text-white shadow-[0_0_12px_rgba(239,68,68,0.4)]"
+              : "text-zinc-500 hover:text-zinc-800 dark:text-zinc-400 dark:hover:text-zinc-200 hover:bg-zinc-200/50 dark:hover:bg-zinc-700/50 active:scale-95"
         }
       `}
     >
       {/* Recording indicator */}
       {isRecording && !disabled && (
         <>
-          <span className="absolute inset-0 rounded-xl border border-red-500 animate-pulse" />
-          <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-red-500 rounded-full border-2 border-background dark:border-zinc-900" />
+          <span className="absolute inset-0 rounded-full border border-red-400 animate-pulse" />
+          <span className="absolute -top-0.5 -right-0.5 w-2 h-2 bg-red-500 rounded-full border-2 border-background dark:border-[#212126]" />
         </>
       )}
 
