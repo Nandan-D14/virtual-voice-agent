@@ -530,7 +530,6 @@ export default function SessionPage() {
       setPageError(null);
       const session = await createSession();
       if (!session) {
-        setPageError("Failed to create session.");
         return;
       }
 
@@ -802,7 +801,7 @@ export default function SessionPage() {
               )}
               <button
                 suppressHydrationWarning
-                onClick={() => router.push("/settings/profile")}
+                  onClick={() => router.push("/settings/api")}
                 className="text-xs px-3 py-1.5 rounded-lg border border-card-border dark:border-[#1c1c1e] text-muted dark:text-zinc-400 hover:bg-black/5 dark:hover:bg-zinc-800/50 hover:text-foreground dark:hover:text-white transition-all duration-200"
               >
                 Settings
@@ -962,7 +961,7 @@ export default function SessionPage() {
 
                 <button
                   suppressHydrationWarning
-                  onClick={() => router.push("/settings/profile")}
+                  onClick={() => router.push("/settings/api")}
                   className="text-xs px-3 py-1.5 rounded-lg border border-card-border dark:border-[#1c1c1e] text-muted dark:text-zinc-400 hover:bg-black/5 dark:hover:bg-zinc-800/50 hover:text-foreground dark:hover:text-white transition-all duration-200"
                 >
                   Settings
