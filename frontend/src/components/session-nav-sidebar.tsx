@@ -79,8 +79,8 @@ export function SessionNavSidebar() {
       </button>
 
       <aside
-        className={`fixed md:sticky top-0 left-0 z-40 h-screen w-64 bg-card dark:bg-[#0a0a0a] border-r border-card-border dark:border-white/5 flex flex-col transition-transform duration-300 ease-in-out ${
-          isSidebarOpen ? "translate-x-0 md:translate-x-0" : "-translate-x-full md:-translate-x-full"
+        className={`fixed top-0 left-0 z-40 h-screen w-64 bg-card dark:bg-[#0a0a0a] border-r border-card-border dark:border-white/5 flex flex-col transition-transform duration-300 ease-in-out ${
+          isSidebarOpen ? "translate-x-0" : "-translate-x-full"
         }`}
       >
       <div className="p-6">
@@ -212,6 +212,13 @@ export function SessionNavSidebar() {
         </div>
       </div>
       </aside>
+
+      <div
+        aria-hidden="true"
+        className={`hidden md:block shrink-0 transition-[width] duration-300 ${
+          isSidebarOpen ? "w-64" : "w-0"
+        }`}
+      />
 
       {isSidebarOpen && (
         <div

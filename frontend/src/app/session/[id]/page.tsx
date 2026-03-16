@@ -843,7 +843,7 @@ export default function SessionPage() {
                     }}
                     placeholder="Give Nexus a task to work on..."
                     rows={2}
-                    className="w-full bg-transparent border-none outline-none text-base text-foreground dark:text-zinc-100 placeholder:text-muted dark:placeholder:text-zinc-500 resize-none overflow-y-auto min-h-[56px] max-h-[200px] leading-relaxed"
+                    className="w-full bg-transparent border-none outline-none text-base text-foreground dark:text-zinc-100 placeholder:text-muted dark:placeholder:text-zinc-500 resize-none overflow-y-auto min-h-14 max-h-50 leading-relaxed"
                   />
                   <div className="flex items-center justify-between mt-2">
                     <div className="flex items-center gap-3 text-zinc-400">
@@ -877,7 +877,7 @@ export default function SessionPage() {
                       <button
                         onClick={handleTextSubmit}
                         disabled={!textInput.trim()}
-                        className={`w-9 h-9 flex items-center justify-center rounded-full transition-all duration-200 ${
+                        className={`w-8 h-8 flex items-center justify-center rounded-full transition-all duration-200 ${
                           textInput.trim() 
                             ? "bg-zinc-900 text-white dark:bg-white dark:text-black hover:scale-105" 
                             : "bg-zinc-100 text-zinc-400 dark:bg-zinc-800 dark:text-zinc-600"
@@ -980,57 +980,41 @@ export default function SessionPage() {
 
             {/* ─── Main content: Desktop + Chat ─── */}
             <div className="flex-1 flex overflow-hidden">
-              {/* Left/Middle: Chat Sidebar (Moved from Right to simulate Manus AI) */}
+              {/* Left/Middle: Chat Sidebar */}
               <div
-                className={`flex flex-col bg-card dark:bg-[#0a0a0c] overflow-hidden transition-all duration-300 ease-in-out ${
+                className={`flex flex-col bg-[#fafafa] dark:bg-[#111114] overflow-hidden transition-all duration-300 ease-in-out ${
                   isDesktopVisible
-                    ? "w-105 min-w-95 border-r border-card-border dark:border-[#1c1c1e]"
+                    ? "w-105 min-w-95 border-r border-zinc-200 dark:border-white/5"
                     : "flex-1 min-w-0"
                 }`}
               >
-                {/* Chat header */}
-                <div className="px-4 py-2.5 border-b border-card-border dark:border-[#1c1c1e] flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <span className="text-[10px] font-black text-muted dark:text-zinc-400 uppercase tracking-[0.15em]">
-                      Chat / Logs
-                    </span>
-                    {phase === "thinking" && (
-                      <span className="text-[9px] text-cyan-500 font-bold uppercase tracking-widest animate-pulse">
-                        Thinking...
-                      </span>
-                    )}
-                    {phase === "acting" && (
-                      <span className="text-[9px] text-amber-500 font-bold uppercase tracking-widest animate-pulse">
-                        Acting...
-                      </span>
-                    )}
-                  </div>
-
-                  {viewMode === "live" && (phase === "thinking" || phase === "acting") && (
+                {/* Minimal top status area for Desktop mode */}
+                {viewMode === "live" && (phase === "thinking" || phase === "acting") && (
+                  <div className="absolute top-4 left-4 z-20 flex items-center justify-between pointer-events-none">
                     <button
                       suppressHydrationWarning
                       onClick={handleStopAgent}
                       title="Stop agent"
-                      className="flex items-center gap-1.5 px-2 py-1 rounded-md border border-red-500/30 bg-red-500/10 text-red-400 hover:bg-red-500/20 transition-colors text-[10px] font-bold uppercase tracking-widest"
+                      className="pointer-events-auto flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-red-500/30 bg-red-500/10 backdrop-blur text-red-500 hover:bg-red-500/20 transition-colors text-[11px] font-bold uppercase tracking-widest shadow-sm"
                     >
-                      <span className="w-2 h-2 rounded-sm bg-red-400 shrink-0" />
-                      Stop
+                      <span className="w-2 h-2 rounded-sm bg-red-500 shrink-0" />
+                      Stop {phase}
                     </button>
-                  )}
-                </div>
+                  </div>
+                )}
 
                 {/* Feed container */}
                 <div className="flex-1 overflow-hidden">
                   {viewMode === "archived" && chatItems.length === 0 ? (
-                    <div className="flex h-full flex-col items-center justify-center p-8 text-center">
-                      <p className="text-lg font-semibold text-foreground dark:text-zinc-100">
+                    <div className="flex h-full flex-col items-center justify-center p-8 text-center bg-transparent">
+                      <p className="text-lg font-medium text-zinc-900 dark:text-zinc-100">
                         Archived session
                       </p>
-                      <p className="mt-2 max-w-md text-sm text-muted dark:text-zinc-500">
+                      <p className="mt-2 max-w-md text-sm text-zinc-500 dark:text-zinc-500">
                         The live desktop is no longer attached. You can review the saved transcript below.
                       </p>
                       {sessionInfo?.summary && (
-                        <p className="mt-4 max-w-lg rounded-xl border border-card-border dark:border-[#1c1c1e] bg-background dark:bg-[#09090b] px-4 py-3 text-sm text-foreground dark:text-zinc-300">
+                        <p className="mt-6 max-w-lg rounded-2xl bg-[#f4f4f5] dark:bg-[#1a1a1c] px-5 py-4 text-[15px] leading-relaxed text-zinc-700 dark:text-zinc-300">
                           {sessionInfo.summary}
                         </p>
                       )}
@@ -1046,41 +1030,68 @@ export default function SessionPage() {
 
                 {/* Input area */}
                 {viewMode === "live" ? (
-                  <div className="px-4 py-3 border-t border-card-border dark:border-[#1c1c1e] bg-card dark:bg-[#09090b]">
-                    <div className="flex items-center gap-2">
-                      <div className="flex-1 relative">
-                        <input
-                          suppressHydrationWarning
-                          ref={inputRef}
-                          type="text"
-                          value={textInput}
-                          onChange={(e) => setTextInput(e.target.value)}
-                          onKeyDown={(e) => e.key === "Enter" && handleTextSubmit()}
-                          placeholder="Send message to Nexus... ( / to focus)"
-                          className="w-full bg-background dark:bg-[#111114] border border-card-border dark:border-[#1c1c1e] rounded-xl px-4 py-2.5 text-sm text-foreground dark:text-white placeholder:text-muted dark:placeholder:text-zinc-600 focus:outline-none focus:border-cyan-500/40 focus:shadow-[0_0_12px_rgba(34,211,238,0.08)] transition-all duration-200"
-                        />
-                        {textInput.trim() && (
-                          <button
-                            onClick={handleTextSubmit}
-                            className="absolute right-2 top-1/2 -translate-y-1/2 w-7 h-7 flex items-center justify-center rounded-full bg-cyan-500 text-white hover:bg-cyan-600 transition-colors shadow-sm"
-                          >
-                            <svg viewBox="0 0 20 20" fill="currentColor" className="w-3.5 h-3.5">
-                              <path fillRule="evenodd" d="M3.293 9.707a1 1 0 010-1.414l6-6a1 1 0 011.414 0l6 6a1 1 0 01-1.414 1.414L11 5.414V17a1 1 0 11-2 0V5.414L4.707 9.707a1 1 0 01-1.414 0z" clipRule="evenodd" />
+                  <div className="px-4 pb-6 pt-2 shrink-0">
+                    <div className="mx-auto w-full max-w-3xl relative">
+                      <div className="flex items-center gap-2 bg-[#f4f4f5] dark:bg-[#212126] border border-zinc-200 dark:border-[#2f2f35] rounded-full p-2 shadow-sm transition-all focus-within:ring-1 focus-within:ring-zinc-400 dark:focus-within:ring-zinc-600">
+                        {/* Action buttons left */}
+                        <div className="flex items-center gap-1 shrink-0">
+                          <button className="w-8 h-8 flex items-center justify-center rounded-full text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-300 hover:bg-zinc-200/50 dark:hover:bg-zinc-700/50 transition-colors">
+                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-5 h-5">
+                              <line x1="12" y1="5" x2="12" y2="19"></line>
+                              <line x1="5" y1="12" x2="19" y2="12"></line>
                             </svg>
                           </button>
-                        )}
+                          <button className="w-8 h-8 flex items-center justify-center rounded-full text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-300 hover:bg-zinc-200/50 dark:hover:bg-zinc-700/50 transition-colors">
+                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-5 h-5">
+                              <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path>
+                              <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path>
+                            </svg>
+                          </button>
+                        </div>
+                        
+                        {/* Text input */}
+                        <div className="flex-1 relative min-h-10 flex items-center">
+                          <input
+                            suppressHydrationWarning
+                            ref={inputRef}
+                            type="text"
+                            value={textInput}
+                            onChange={(e) => setTextInput(e.target.value)}
+                            onKeyDown={(e) => e.key === "Enter" && handleTextSubmit()}
+                            placeholder="Send message to Nexus..."
+                            className="w-full bg-transparent border-none px-2 py-2.5 text-[15px] text-foreground dark:text-zinc-100 placeholder:text-zinc-500 focus:outline-none focus:ring-0"
+                          />
+                        </div>
+                        
+                        {/* Action buttons right */}
+                        <div className="flex items-center gap-1 shrink-0">
+                          <MicButton
+                            isRecording={isRecording}
+                            onStart={toggleMic}
+                            onStop={toggleMic}
+                            disabled={voiceStatus !== "connected"}
+                          />
+                          <button
+                            onClick={handleTextSubmit}
+                            disabled={!textInput.trim()}
+                            className={`w-8 h-8 flex items-center justify-center rounded-full transition-colors ${
+                              textInput.trim() 
+                                ? 'bg-zinc-800 dark:bg-zinc-200 text-white dark:text-zinc-900 hover:bg-zinc-700 dark:hover:bg-white' 
+                                : 'bg-zinc-200 dark:bg-zinc-800 text-zinc-400 dark:text-zinc-600 cursor-not-allowed'
+                            }`}
+                          >
+                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4">
+                              <line x1="12" y1="19" x2="12" y2="5"></line>
+                              <polyline points="5 12 12 5 19 12"></polyline>
+                            </svg>
+                          </button>
+                        </div>
                       </div>
-                      <MicButton
-                        isRecording={isRecording}
-                        onStart={toggleMic}
-                        onStop={toggleMic}
-                        disabled={voiceStatus !== "connected"}
-                      />
                     </div>
                   </div>
                 ) : (
-                  <div className="border-t border-card-border dark:border-[#1c1c1e] px-4 py-3 text-sm text-muted dark:text-zinc-500">
-                    Archived sessions are read-only.
+                  <div className="px-4 pb-6 pt-2 shrink-0 text-sm text-muted dark:text-zinc-500">
+                    <p className="mx-auto w-full max-w-3xl text-center">Archived sessions are read-only.</p>
                   </div>
                 )}
               </div>
