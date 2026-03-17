@@ -14,6 +14,176 @@ Nexus is a state-of-the-art, voice-enabled autonomous agent designed to navigate
 ---
 
 ## 🏗️ Architecture Diagram
+
+```mermaid
+graph TB
+    subgraph CLIENT["🖥️ Frontend — Next.js"]
+        UI["App Shell<br/>(React Components)"]
+        CHAT["Unified Chat Panel"]
+        DESKTOP["Desktop Panel<br/>(VNC Stream Viewer)"]
+        MIC["Mic Button<br/>(PCM Audio Capture)"]
+        AUTH_CTX["Auth Context<br/>(Firebase Client SDK)"]
+        WS_HOOK["useWebSocket Hook"]
+        API_CLIENT["API Client<br/>(REST Calls)"]
+    end
+
+    subgraph FIREBASE_SERVICES["🔥 Firebase / Google Cloud"]
+        FB_AUTH["Firebase Authentication<br/>(ID Token Verification)"]
+        FIRESTORE[("Cloud Firestore<br/>• users<br/>• sessions<br/>• messages<br/>• usage_records<br/>• user_settings")]
+    end
+
+    subgraph BACKEND["⚙️ Backend — FastAPI (Python)"]
+        SERVER["server.py<br/>FastAPI App"]
+
+        subgraph REST_API["REST Endpoints"]
+            HEALTH["/health"]
+            SESSIONS_EP["/sessions (CRUD)"]
+            HISTORY["/api/v1/history"]
+            SETTINGS_EP["/api/v1/user/settings"]
+            QUOTA["/api/v1/user/quota"]
+            DASHBOARD["/api/v1/dashboard/*"]
+            GDRIVE_OAUTH["/api/v1/auth/google-drive/*"]
+        end
+
+        WS_EP["/ws/{session_id}<br/>WebSocket Endpoint"]
+        WS_HANDLER["ws_handler.py<br/>Message Router"]
+        AUTH_MW["auth.py<br/>Firebase Token Verification"]
+        SESSION_MGR["session.py<br/>SessionManager"]
+        HISTORY_REPO["history_repository.py<br/>FirestoreHistoryRepository"]
+        RUNTIME_CFG["runtime_config.py<br/>SessionRuntimeConfig"]
+        CRYPTO_MOD["crypto.py<br/>(BYOK Encryption)"]
+    end
+    
+    subgraph ORCHESTRATION["🧠 Orchestration Layer"]
+        ORCH["orchestrator.py<br/>NexusOrchestrator<br/>(voice → think → act → see)"]
+        BG_TASKS["background_tasks.py<br/>BackgroundTaskManager"]
+    end
+
+    subgraph GOOGLE_ADK["🤖 Google ADK — Multi-Agent System"]
+        subgraph AGENT_HIERARCHY["Agent Hierarchy"]
+            ORCH_AGENT["Orchestrator Agent<br/>(Task Router)"]
+            COMPUTER_AGENT["Computer Agent<br/>(GUI Control)"]
+            BROWSER_AGENT["Browser Agent<br/>(Web Browsing)"]
+            CODE_AGENT["Code Agent<br/>(Terminal/Code)"]
+        end
+        
+        ADK_RUNNER["ADK Runner<br/>google.adk.runners.Runner"]
+        ADK_SESSION["InMemorySessionService"]
+        CRED_GEMINI["CredentialedGemini<br/>(Per-Session Credentials)"]
+    end
+
+    subgraph GEMINI_MODELS["💎 Gemini Models (Google AI)"]
+        GEMINI_LIVE["Gemini Live 2.5 Flash<br/>(Native Audio)<br/>Bidirectional Voice"]
+        GEMINI_VISION["Gemini 3 Flash Preview<br/>(Vision/Agent Reasoning)"]
+        GEMINI_FALLBACK["Fallback Models<br/>• gemini-3.1-flash-lite<br/>• gemini-2.5-pro<br/>• gemini-3.1-pro<br/>• gemini-2.5-flash"]
+    end
+
+    subgraph VOICE_LAYER["🎤 Voice Layer"]
+        VOICE_MGR["voice.py<br/>GeminiLiveManager<br/>(Bidirectional Audio Stream)"]
+    end
+
+    subgraph VISION_LAYER["👁️ Vision Layer"]
+        VISION["vision.py<br/>VisionAnalyzer<br/>(Screenshot Analysis)"]
+    end
+
+    subgraph TOOLS["🔧 Agent Tools"]
+        SCREEN_TOOL["screen.py<br/>take_screenshot"]
+        COMPUTER_TOOL["computer.py<br/>mouse/keyboard/scroll/drag"]
+        BASH_TOOL["bash.py<br/>run_command"]
+        BROWSER_TOOL["browser.py<br/>open_browser"]
+        BG_TOOL["bg_task.py<br/>request_background_task"]
+    end
+
+    subgraph SANDBOX["📦 E2B Desktop Sandbox"]
+        SANDBOX_MGR["sandbox.py<br/>SandboxManager"]
+        E2B["E2B Desktop API<br/>(Cloud Linux Desktop)"]
+        VNC_STREAM["VNC Stream<br/>(Live Desktop View)"]
+    end
+
+    subgraph EXTERNAL["🌐 External Integrations"]
+        KILO["Kilo AI Gateway<br/>(OpenAI-Compatible)"]
+        GDRIVE["Google Drive API<br/>(OAuth 2.0 + rclone mount)"]
+        GOOGLE_OAUTH["Google OAuth 2.0"]
+    end
+
+    %% Client → Backend connections
+    AUTH_CTX -->|"Firebase ID Token"| FB_AUTH
+    API_CLIENT -->|"REST + Bearer Token"| SERVER
+    WS_HOOK -->|"WebSocket + JWT Ticket"| WS_EP
+    MIC -->|"PCM Audio (16kHz)"| WS_HOOK
+
+    %% Backend internal flow
+    SERVER --> AUTH_MW
+    AUTH_MW -->|"verify_id_token()"| FB_AUTH
+    SERVER --> REST_API
+    SERVER --> SESSIONS_EP
+    SESSIONS_EP --> SESSION_MGR
+    SESSION_MGR --> SANDBOX_MGR
+    SESSION_MGR --> HISTORY_REPO
+    HISTORY_REPO --> FIRESTORE
+    WS_EP --> WS_HANDLER
+    WS_HANDLER --> ORCH
+    RUNTIME_CFG --> CRYPTO_MOD
+
+    %% Orchestrator flow
+    ORCH -->|"handle_user_audio()"| VOICE_MGR
+    ORCH -->|"run_agent_turn()"| ADK_RUNNER
+    ORCH -->|"analyze_screen()"| VISION
+    ORCH --> BG_TASKS
+    ORCH --> HISTORY_REPO
+
+    %% ADK internals
+    ADK_RUNNER --> ADK_SESSION
+    ADK_RUNNER --> ORCH_AGENT
+    ORCH_AGENT -->|"delegate"| COMPUTER_AGENT
+    ORCH_AGENT -->|"delegate"| BROWSER_AGENT
+    ORCH_AGENT -->|"delegate"| CODE_AGENT
+    CRED_GEMINI -->|"google.genai.Client"| GEMINI_VISION
+    ORCH_AGENT --> CRED_GEMINI
+    COMPUTER_AGENT --> CRED_GEMINI
+    BROWSER_AGENT --> CRED_GEMINI
+    CODE_AGENT --> CRED_GEMINI
+
+    %% Voice connections
+    VOICE_MGR -->|"Live Bidirectional<br/>Audio + Transcription"| GEMINI_LIVE
+    VOICE_MGR -->|"TTS: send_text()"| GEMINI_LIVE
+    VOICE_MGR -->|"STT: receive_events()"| GEMINI_LIVE
+
+    %% Vision connections
+    VISION -->|"generate_content()<br/>+ screenshot JPEG"| GEMINI_VISION
+    VISION -->|"model fallback chain"| GEMINI_FALLBACK
+
+    %% Tools → Sandbox
+    SCREEN_TOOL --> SANDBOX_MGR
+    COMPUTER_TOOL --> SANDBOX_MGR
+    BASH_TOOL --> SANDBOX_MGR
+    BROWSER_TOOL --> SANDBOX_MGR
+    SANDBOX_MGR --> E2B
+    E2B --> VNC_STREAM
+
+    %% VNC to frontend
+    VNC_STREAM -.->|"iframe stream"| DESKTOP
+
+    %% External integrations
+    CRED_GEMINI -.->|"Kilo fallback"| KILO
+    GDRIVE_OAUTH --> GOOGLE_OAUTH
+    SESSION_MGR -->|"rclone mount"| GDRIVE
+
+    %% Styling
+    classDef firebase fill:#FF9800,stroke:#F57C00,color:#fff
+    classDef gemini fill:#4285F4,stroke:#3367D6,color:#fff
+    classDef adk fill:#0F9D58,stroke:#0B8043,color:#fff
+    classDef e2b fill:#AB47BC,stroke:#8E24AA,color:#fff
+    classDef frontend fill:#00BCD4,stroke:#0097A7,color:#fff
+    classDef tool fill:#78909C,stroke:#546E7A,color:#fff
+
+    class FB_AUTH,FIRESTORE firebase
+    class GEMINI_LIVE,GEMINI_VISION,GEMINI_FALLBACK gemini
+    class ORCH_AGENT,COMPUTER_AGENT,BROWSER_AGENT,CODE_AGENT,ADK_RUNNER,ADK_SESSION,CRED_GEMINI adk
+    class E2B,VNC_STREAM,SANDBOX_MGR e2b
+    class UI,CHAT,DESKTOP,MIC,AUTH_CTX,WS_HOOK,API_CLIENT frontend
+    class SCREEN_TOOL,COMPUTER_TOOL,BASH_TOOL,BROWSER_TOOL,BG_TOOL tool
+```
 ![Architecture Diagram](./docs/architecture_diagram.png)  
 *A visual representation showing how the Next.js frontend connects to the FastAPI backend, which orchestrates between Google Vertex AI (Gemini), Firebase (Auth/Store), and the E2B Sandbox environment.*
 
