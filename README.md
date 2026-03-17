@@ -14,6 +14,19 @@ Nexus is a state-of-the-art, voice-enabled autonomous agent designed to navigate
 ![Architecture Diagram](./docs/architecture_diagram.png)  
 *A visual representation showing how the Next.js frontend connects to the FastAPI backend, which orchestrates between Google Vertex AI (Gemini), Firebase (Auth/Store), and the E2B Sandbox environment.*
 
+If the image or Mermaid is not visible in your viewer, use the plain-text detailed architecture here:  
+[View Detailed Architecture (No Mermaid)](./docs/ARCHITECTURE.md)
+
+Core runtime flow (Agent + Gemini):
+
+```text
+User -> Frontend (Next.js) -> Backend (FastAPI /ws + REST)
+Backend Orchestrator -> Gemini (reasoning + tool calls)
+Backend Tools -> E2B Sandbox (browser/mouse/keyboard/bash/screenshot)
+Screenshot/Audio -> Gemini Vision + Gemini Live
+Gemini output -> Backend -> Frontend (text/audio/events)
+```
+
 ---
 
 ## 📺 Demonstration Video
