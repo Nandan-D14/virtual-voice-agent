@@ -64,6 +64,24 @@ class SessionRuntimeConfig:
     kilo_model_id: str
     kilo_gateway_url: str
 
+    def __repr__(self) -> str:
+        return (
+            f"SessionRuntimeConfig("
+            f"e2b_api_key='***', "
+            f"gemini_provider='{self.gemini_provider}', "
+            f"gemini_api_key='***', "
+            f"google_project_id='{self.google_project_id}', "
+            f"google_cloud_region='{self.google_cloud_region}', "
+            f"gemini_live_model='{self.gemini_live_model}', "
+            f"gemini_live_region='{self.gemini_live_region}', "
+            f"gemini_vision_model='{self.gemini_vision_model}', "
+            f"gemini_vision_fallback_models={self.gemini_vision_fallback_models}, "
+            f"use_kilo={self.use_kilo}, "
+            f"kilo_api_key='***', "
+            f"kilo_model_id='{self.kilo_model_id}', "
+            f"kilo_gateway_url='{self.kilo_gateway_url}')"
+        )
+
     @property
     def use_vertex_ai(self) -> bool:
         return self.gemini_provider == "vertex" and bool(self.google_project_id)

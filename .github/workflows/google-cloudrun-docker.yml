@@ -1,44 +1,16 @@
-# This workflow build and push a Docker container to Google Artifact Registry
-# and deploy it on Cloud Run when a commit is pushed to the "main"
-# branch.
-#
-# To configure this workflow:
-#
-# 1. Enable the following Google Cloud APIs:
-#
-#    - Artifact Registry (artifactregistry.googleapis.com)
-#    - Cloud Run (run.googleapis.com)
-#    - IAM Credentials API (iamcredentials.googleapis.com)
-#
-#    You can learn more about enabling APIs at
-#    https://support.google.com/googleapi/answer/6158841.
-#
-# 2. Create and configure a Workload Identity Provider for GitHub:
-#    https://github.com/google-github-actions/auth#preferred-direct-workload-identity-federation.
-#
-#    Depending on how you authenticate, you will need to grant an IAM principal
-#    permissions on Google Cloud:
-#
-#    - Artifact Registry Administrator (roles/artifactregistry.admin)
-#    - Cloud Run Developer (roles/run.developer)
-#
-#    You can learn more about setting IAM permissions at
-#    https://cloud.google.com/iam/docs/manage-access-other-resources
-#
-# 3. Change the values in the "env" block to match your values.
-
-name: 'Build and Deploy to Cloud Run'
+name: 'Build and Deploy Nexus to Cloud Run'
 
 on:
   push:
     branches:
-      - '"main"'
+      - 'main'
 
 env:
-  PROJECT_ID: 'my-project' # TODO: update to your Google Cloud project ID
-  REGION: 'us-central1' # TODO: update to your region
-  SERVICE: 'my-service' # TODO: update to your service name
-  WORKLOAD_IDENTITY_PROVIDER: 'projects/123456789/locations/global/workloadIdentityPools/my-pool/providers/my-provider' # TODO: update to your workload identity provider
+  PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+  REGION: ${{ secrets.GCP_REGION || 'us-central1' }}
+  GEMINI_REGION: ${{ secrets.GCP_GEMINI_REGION || 'global' }}
+  WORKLOAD_IDENTITY_PROVIDER: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+  AR_REPO: ${{ secrets.GCP_REGION || 'us-central1' }}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/nexus
 
 jobs:
   deploy:
@@ -50,46 +22,119 @@ jobs:
 
     steps:
       - name: 'Checkout'
-        uses: 'actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332' # actions/checkout@v4
+        uses: 'actions/checkout@v4'
 
-      # Configure Workload Identity Federation and generate an access token.
-      #
-      # See https://github.com/google-github-actions/auth for more options,
-      # including authenticating via a JSON credentials file.
       - id: 'auth'
         name: 'Authenticate to Google Cloud'
-        uses: 'google-github-actions/auth@f112390a2df9932162083945e46d439060d66ec2' # google-github-actions/auth@v2
+        uses: 'google-github-actions/auth@v2'
         with:
           workload_identity_provider: '${{ env.WORKLOAD_IDENTITY_PROVIDER }}'
 
-      # BEGIN - Docker auth and build
-      #
-      # If you already have a container image, you can omit these steps.
+      - name: 'Set up Cloud SDK'
+        uses: 'google-github-actions/setup-gcloud@v2'
+
       - name: 'Docker Auth'
-        uses: 'docker/login-action@9780b0c442fbb1117ed29e0efdff1e18412f7567' # docker/login-action@v3
+        uses: 'docker/login-action@v3'
         with:
           username: 'oauth2accesstoken'
           password: '${{ steps.auth.outputs.auth_token }}'
           registry: '${{ env.REGION }}-docker.pkg.dev'
 
-      - name: 'Build and Push Container'
+      - name: 'Ensure Artifact Registry repository exists'
         run: |-
-          DOCKER_TAG="$${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.SERVICE }}:${{ github.sha }}"
-          docker build --tag "${DOCKER_TAG}" .
-          docker push "${DOCKER_TAG}"
-      - name: 'Deploy to Cloud Run'
+          gcloud artifacts repositories create nexus \
+            --project="${{ env.PROJECT_ID }}" \
+            --repository-format=docker \
+            --location="${{ env.REGION }}" \
+            --description="NEXUS container images" 2>/dev/null || true
 
-        # END - Docker auth and build
+      - name: 'Build Agent Image (Cloud Build)'
+        run: |-
+          AGENT_IMAGE="${{ env.AR_REPO }}/nexus-agent:${{ github.sha }}"
+          gcloud builds submit \
+            --project="${{ env.PROJECT_ID }}" \
+            --tag="${AGENT_IMAGE}" \
+            ./agent
+          echo "AGENT_IMAGE=${AGENT_IMAGE}" >> $GITHUB_ENV
 
-        uses: 'google-github-actions/deploy-cloudrun@33553064113a37d688aa6937bacbdc481580be17' # google-github-actions/deploy-cloudrun@v2
-        with:
-          service: '${{ env.SERVICE }}'
-          region: '${{ env.REGION }}'
-          # NOTE: If using a pre-built image, update the image name below:
+      - name: 'Deploy Agent to Cloud Run'
+        run: |-
+          SECRET_FLAGS=("--set-secrets=E2B_API_KEY=e2b-api-key:latest")
+          if [[ -n "${{ secrets.BYOK_ENCRYPTION_KEY_SECRET }}" ]]; then
+            SECRET_FLAGS+=("--set-secrets=BYOK_ENCRYPTION_KEY=${{ secrets.BYOK_ENCRYPTION_KEY_SECRET }}:latest")
+          fi
 
-          image: '${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.SERVICE }}:${{ github.sha }}'
-      # If required, use the Cloud Run URL output in later steps
-      - name: 'Show output'
-        run: |2-
+          AGENT_ENV_VARS=(
+            "FIREBASE_PROJECT_ID=${{ secrets.FIREBASE_PROJECT_ID }}"
+            "GOOGLE_PROJECT_ID=${{ env.PROJECT_ID }}"
+            "GOOGLE_CLOUD_REGION=${{ env.GEMINI_REGION }}"
+            "GOOGLE_CLOUD_PROJECT=${{ env.PROJECT_ID }}"
+            "GOOGLE_CLOUD_LOCATION=${{ env.GEMINI_REGION }}"
+            "GOOGLE_GENAI_USE_VERTEXAI=true"
+            "GOOGLE_OAUTH_CLIENT_ID=${{ secrets.GOOGLE_OAUTH_CLIENT_ID }}"
+            "GOOGLE_OAUTH_CLIENT_SECRET=${{ secrets.GOOGLE_OAUTH_CLIENT_SECRET }}"
+            "REQUIRE_BYOK=${{ secrets.REQUIRE_BYOK || 'false' }}"
+            "SHARED_ACCESS_CODE=${{ secrets.SHARED_ACCESS_CODE }}"
+          )
+          AGENT_ENV_VARS_CSV="$(IFS=,; printf '%s' "${AGENT_ENV_VARS[*]}")"
 
-          echo ${{ steps.deploy.outputs.url }}
+          gcloud run deploy nexus-agent \
+            --project="${{ env.PROJECT_ID }}" \
+            --region="${{ env.REGION }}" \
+            --image="${{ env.AGENT_IMAGE }}" \
+            --port=8000 \
+            --memory=1Gi \
+            --cpu=1 \
+            --timeout=3600 \
+            --concurrency=10 \
+            --allow-unauthenticated \
+            "${SECRET_FLAGS[@]}" \
+            --set-env-vars="${AGENT_ENV_VARS_CSV}"
+
+          AGENT_URL="$(gcloud run services describe nexus-agent \
+            --project="${{ env.PROJECT_ID }}" \
+            --region="${{ env.REGION }}" \
+            --format='value(status.url)')"
+          
+          AGENT_WS_URL="${AGENT_URL/https:/wss:}"
+          
+          echo "AGENT_URL=${AGENT_URL}" >> $GITHUB_ENV
+          echo "AGENT_WS_URL=${AGENT_WS_URL}" >> $GITHUB_ENV
+
+      - name: 'Build Frontend Image (Cloud Build)'
+        run: |-
+          FRONTEND_IMAGE="${{ env.AR_REPO }}/nexus-frontend:${{ github.sha }}"
+          gcloud builds submit \
+            --project="${{ env.PROJECT_ID }}" \
+            --config="./frontend/cloudbuild.yaml" \
+            --substitutions="_IMAGE=${FRONTEND_IMAGE},_NEXT_PUBLIC_FIREBASE_API_KEY=${{ secrets.FIREBASE_API_KEY }},_NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN=${{ secrets.FIREBASE_AUTH_DOMAIN }},_NEXT_PUBLIC_FIREBASE_PROJECT_ID=${{ secrets.FIREBASE_PROJECT_ID }},_NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET=${{ secrets.FIREBASE_STORAGE_BUCKET }},_NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID=${{ secrets.FIREBASE_MESSAGING_SENDER_ID }},_NEXT_PUBLIC_FIREBASE_APP_ID=${{ secrets.FIREBASE_APP_ID }},_NEXT_PUBLIC_USE_FIREBASE_EMULATORS=false,_NEXT_PUBLIC_AGENT_WS_URL=${{ env.AGENT_WS_URL }}" \
+            ./frontend
+          echo "FRONTEND_IMAGE=${FRONTEND_IMAGE}" >> $GITHUB_ENV
+
+      - name: 'Deploy Frontend to Cloud Run'
+        run: |-
+          gcloud run deploy nexus-frontend \
+            --project="${{ env.PROJECT_ID }}" \
+            --region="${{ env.REGION }}" \
+            --image="${{ env.FRONTEND_IMAGE }}" \
+            --port=3000 \
+            --memory=512Mi \
+            --cpu=1 \
+            --timeout=300 \
+            --concurrency=80 \
+            --allow-unauthenticated \
+            --set-env-vars="AGENT_URL=${{ env.AGENT_URL }}"
+
+          FRONTEND_URL="$(gcloud run services describe nexus-frontend \
+            --project="${{ env.PROJECT_ID }}" \
+            --region="${{ env.REGION }}" \
+            --format='value(status.url)')"
+            
+          echo "FRONTEND_URL=${FRONTEND_URL}" >> $GITHUB_ENV
+
+      - name: 'Update Agent CORS Origin'
+        run: |-
+          gcloud run services update nexus-agent \
+            --project="${{ env.PROJECT_ID }}" \
+            --region="${{ env.REGION }}" \
+            --update-env-vars="FRONTEND_URL=${{ env.FRONTEND_URL }}"
