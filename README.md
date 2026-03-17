@@ -118,6 +118,8 @@ This script handles:
 2.  **Google Cloud Build** for containerizing both the agent and frontend.
 3.  **Cloud Run** deployment with proper environment variable and Secret Manager injection.
 
+Before running the script, export the required Firebase web config values as environment variables such as `FIREBASE_API_KEY`, `FIREBASE_AUTH_DOMAIN`, `FIREBASE_PROJECT_ID`, `FIREBASE_STORAGE_BUCKET`, `FIREBASE_MESSAGING_SENDER_ID`, and `FIREBASE_APP_ID`. Do not hardcode those values in tracked files.
+
 ### Proof of Deployment
 - **Deployment Script:** [View `deploy/gcp/deploy.sh`](./deploy/gcp/deploy.sh)
 - **Vertex AI Implementation:** [View `agent/nexus/vision.py`](./agent/nexus/vision.py) for direct integration with Vertex AI endpoints.
