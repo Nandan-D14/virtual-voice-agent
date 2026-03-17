@@ -15,6 +15,12 @@ Nexus is a state-of-the-art, voice-enabled autonomous agent designed to navigate
 
 ## 🏗️ Architecture Diagram
 
+
+<details>
+<summary>Click to expand full architecture details</summary>
+
+### System Overview
+
 ```mermaid
 graph TB
     subgraph CLIENT["🖥️ Frontend — Next.js"]
@@ -184,21 +190,138 @@ graph TB
     class UI,CHAT,DESKTOP,MIC,AUTH_CTX,WS_HOOK,API_CLIENT frontend
     class SCREEN_TOOL,COMPUTER_TOOL,BASH_TOOL,BROWSER_TOOL,BG_TOOL tool
 ```
-![Architecture Diagram](./docs/architecture_diagram.png)  
-*A visual representation showing how the Next.js frontend connects to the FastAPI backend, which orchestrates between Google Vertex AI (Gemini), Firebase (Auth/Store), and the E2B Sandbox environment.*
 
-If the image or Mermaid is not visible in your viewer, use the plain-text detailed architecture here:  
-[View Detailed Architecture (No Mermaid)](./docs/ARCHITECTURE.md)
+### Data Flow — Voice → Think → Act → See Loop
 
-Core runtime flow (Agent + Gemini):
+```mermaid
+sequenceDiagram
+    participant User as 👤 User
+    participant FE as 🖥️ Frontend
+    participant WS as ⚡ WebSocket
+    participant Orch as 🧠 NexusOrchestrator
+    participant Voice as 🎤 GeminiLiveManager
+    participant GemLive as 💎 Gemini Live
+    participant ADK as 🤖 ADK Multi-Agent
+    participant GemVision as 💎 Gemini Vision
+    participant Tools as 🔧 Agent Tools
+    participant E2B as 📦 E2B Sandbox
 
-```text
-User -> Frontend (Next.js) -> Backend (FastAPI /ws + REST)
-Backend Orchestrator -> Gemini (reasoning + tool calls)
-Backend Tools -> E2B Sandbox (browser/mouse/keyboard/bash/screenshot)
-Screenshot/Audio -> Gemini Vision + Gemini Live
-Gemini output -> Backend -> Frontend (text/audio/events)
+    User->>FE: Click Mic / Type Message
+    FE->>WS: PCM audio / text_input
+
+    alt Voice Input
+        WS->>Orch: handle_user_audio(pcm)
+        Orch->>Voice: send_audio(pcm)
+        Voice->>GemLive: Realtime audio stream
+        GemLive-->>Voice: user_transcript
+        Voice-->>Orch: "user said: ..."
+    else Text Input
+        WS->>Orch: handle_text_input(text)
+    end
+
+    Orch->>ADK: run_agent_turn(message)
+    
+    loop Agent Turn (max 30 iterations)
+        ADK->>GemVision: generate_content(prompt)
+        GemVision-->>ADK: function_call(tool, args)
+        ADK->>Tools: Execute tool
+        Tools->>E2B: Control sandbox (click/type/screenshot)
+        E2B-->>Tools: Result
+        Tools-->>ADK: Tool result
+        ADK-->>Orch: Stream event
+        Orch-->>WS: Forward event to frontend
+    end
+
+    ADK-->>Orch: Final response text
+    Orch-->>WS: transcript(agent, response)
+
+    opt Voice Connected
+        Orch->>Voice: send_text(response)
+        Voice->>GemLive: TTS request
+        GemLive-->>Voice: Audio response
+        Voice-->>WS: Audio bytes
+        WS-->>FE: Play audio
+    end
 ```
+
+### Multi-Agent Architecture (Google ADK)
+
+```mermaid
+graph TB
+    subgraph ADK_SYSTEM["Google ADK Multi-Agent System"]
+        ORCHESTRATOR["🎯 Orchestrator Agent<br/><i>Task routing & delegation</i><br/><br/>Model: Gemini 3 Flash / Kilo AI"]
+        
+        COMPUTER["🖱️ Computer Agent<br/><i>GUI interaction specialist</i><br/><br/>Tools: screenshot, mouse,<br/>keyboard, scroll, drag"]
+        
+        BROWSER["🌐 Browser Agent<br/><i>Web browsing & research</i><br/><br/>Tools: open_browser, screenshot,<br/>click, type, scroll, run_command"]
+        
+        CODE["💻 Code Agent<br/><i>Terminal & code execution</i><br/><br/>Tools: run_command, screenshot,<br/>type_text, press_key"]
+    end
+
+    ORCHESTRATOR -->|"GUI tasks:<br/>click, type, forms"| COMPUTER
+    ORCHESTRATOR -->|"Web tasks:<br/>search, browse, research"| BROWSER
+    ORCHESTRATOR -->|"CLI tasks:<br/>install, build, git"| CODE
+
+    classDef orchestrator fill:#E91E63,stroke:#C2185B,color:#fff
+    classDef specialist fill:#3F51B5,stroke:#303F9F,color:#fff
+    class ORCHESTRATOR orchestrator
+    class COMPUTER,BROWSER,CODE specialist
+```
+
+### Firebase & Authentication Flow
+
+```mermaid
+sequenceDiagram
+    participant FE as 🖥️ Frontend
+    participant FBAuth as 🔥 Firebase Auth
+    participant API as ⚙️ FastAPI Backend
+    participant FBAdmin as 🔥 Firebase Admin
+    participant FS as 🔥 Firestore
+
+    FE->>FBAuth: signInWithPopup() / signInWithEmail()
+    FBAuth-->>FE: Firebase ID Token
+
+    FE->>API: POST /sessions (Bearer: ID Token)
+    API->>FBAdmin: verify_id_token(token)
+    FBAdmin-->>API: Decoded claims {uid}
+    API->>FS: upsert_user(uid)
+    API->>API: Create session + JWT ticket
+    API-->>FE: {session_id, ws_ticket}
+
+    FE->>API: WS /ws/{session_id}?ticket=JWT
+    API->>API: validate_ticket(JWT)
+    API-->>FE: WebSocket connected
+```
+
+### Deployment Architecture
+
+```mermaid
+graph LR
+    subgraph GCP["☁️ Google Cloud Platform"]
+        CR_FE["Cloud Run<br/>Frontend (Next.js)"]
+        CR_BE["Cloud Run<br/>Backend (FastAPI)"]
+        FS_DB[("Firestore<br/>Database")]
+        FB_A["Firebase Auth"]
+        VERTEX["Vertex AI<br/>(Gemini Models)"]
+    end
+
+    subgraph E2B_CLOUD["📦 E2B Cloud"]
+        SANDBOX["Desktop Sandboxes<br/>(Linux VMs)"]
+    end
+
+    USERS["👥 Users"] --> CR_FE
+    CR_FE -->|"REST API + WebSocket"| CR_BE
+    CR_BE --> FS_DB
+    CR_BE --> FB_A
+    CR_BE -->|"genai SDK"| VERTEX
+    CR_BE -->|"E2B SDK"| SANDBOX
+
+    classDef gcp fill:#4285F4,stroke:#3367D6,color:#fff
+    classDef e2b fill:#AB47BC,stroke:#8E24AA,color:#fff
+    class CR_FE,CR_BE,FS_DB,FB_A,VERTEX gcp
+    class SANDBOX e2b
+```
+</details>
 
 ---
 
