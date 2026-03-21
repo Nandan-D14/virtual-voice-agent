@@ -99,7 +99,6 @@ export default function SessionPage() {
     getSessionArtifacts,
     getSessionRun,
     getSessionRunSteps,
-    getResumeWorkspace,
     refreshTicket,
     destroySession,
     isLoading,
@@ -478,20 +477,6 @@ export default function SessionPage() {
       setViewMode("live");
 
       if (isNewSession) {
-        const workspace = await getResumeWorkspace();
-        if (cancelled) {
-          return;
-        }
-        if (workspace?.available && workspace.session?.session_id) {
-          router.replace(`/session/${workspace.session.session_id}?resume=1`);
-          return;
-        }
-        const session = await createSession();
-        if (!cancelled && session) {
-          router.replace(`/session/${session.session_id}`);
-        } else if (!cancelled && !session) {
-          setPageError("Failed to open a new thread.");
-        }
         return;
       }
 
@@ -570,10 +555,8 @@ export default function SessionPage() {
   }, [
     authLoading,
     clearDesktop,
-    createSession,
     getSessionMessages,
     getSessionArtifacts,
-    getResumeWorkspace,
     getSessionRun,
     getSessionRunSteps,
     getSession,
@@ -716,6 +699,34 @@ export default function SessionPage() {
     ],
   );
 
+  const createThreadFromPrompt = useCallback(
+    async (text: string) => {
+      const prompt = text.trim();
+      if (!prompt || isLoading) {
+        return;
+      }
+
+      setPageError(null);
+      const session = await createSession({ mode: "fresh" });
+      if (!session) {
+        setPageError("Failed to create a new thread.");
+        return;
+      }
+
+      try {
+        sessionStorage.setItem(
+          `nexus.pendingSessionAction:${session.session_id}`,
+          JSON.stringify({ type: "prompt", text: prompt }),
+        );
+      } catch {
+        // Ignore storage failures and continue to the created session.
+      }
+
+      router.replace(`/session/${session.session_id}`);
+    },
+    [createSession, isLoading, router],
+  );
+
   const sendTextOrQueue = useCallback(
     (text: string) => {
       if (isNewSession) {
@@ -804,12 +815,12 @@ export default function SessionPage() {
     const text = textInput.trim();
     if (!text) return;
     if (isNewSession) {
-      setTextInput("");
+      void createThreadFromPrompt(text);
       return;
     }
     sendTextOrQueue(text);
     setTextInput("");
-  }, [isNewSession, sendTextOrQueue, textInput]);
+  }, [createThreadFromPrompt, isNewSession, sendTextOrQueue, textInput]);
 
   const handleShowDesktop = useCallback(() => {
     if (isNewSession) {
@@ -988,7 +999,7 @@ export default function SessionPage() {
         {!hasStarted ? (
           <div className="flex-1 flex flex-col items-center justify-center relative p-6">
             <div className="absolute top-4 right-4 flex gap-2">
-              {viewMode === "live" && (
+              {viewMode === "live" && !isNewSession && (
                 <button
                   suppressHydrationWarning
                   onClick={handleShowDesktop}
@@ -1016,27 +1027,17 @@ export default function SessionPage() {
             <div className="max-w-3xl w-full flex flex-col items-center gap-8 mb-20 mt-10">
               <div className="text-center space-y-4">
                 <h1 className="text-3xl font-medium tracking-tight text-zinc-900 dark:text-zinc-100">
-                  {isNewSession ? "Opening your thread" : "Welcome to Nexus"}
+                  {isNewSession ? "New Chat" : "Welcome to Nexus"}
                 </h1>
                 <p className="text-[15px] text-zinc-500">
                   {isNewSession
-                    ? "Restoring your latest workspace or preparing a new thread."
+                    ? "Send a message to create a new thread."
                     : "What can I help you with?"}
                 </p>
               </div>
 
-              {isNewSession ? (
-                <div className="flex flex-col items-center gap-4 rounded-3xl border border-zinc-200 bg-white/80 px-8 py-8 text-center shadow-sm dark:border-[#2f2f35] dark:bg-[#16161b]">
-                  <div className="h-8 w-8 rounded-full border-4 border-cyan-600 border-t-transparent animate-spin" />
-                  <p className="text-sm text-zinc-600 dark:text-zinc-300">
-                    Auto-resume is enabled. Nexus is reopening the latest thread with the lowest-cost available workspace path.
-                  </p>
-                </div>
-              ) : null}
-
               {/* Floating Input Box */}
-              {!isNewSession ? (
-                <div className="w-full relative group max-w-2xl mx-auto mt-4 px-4">
+              <div className="w-full relative group max-w-2xl mx-auto mt-4 px-4">
                 <div className="relative flex flex-col bg-[#f4f4f5] dark:bg-[#212126] border border-zinc-200 dark:border-[#2f2f35] rounded-3xl shadow-sm focus-within:ring-1 focus-within:ring-zinc-400 dark:focus-within:ring-zinc-600 transition-all duration-300 p-2">
                   <div className="relative min-h-[60px] flex items-center px-2">
                     <textarea
@@ -1082,13 +1083,13 @@ export default function SessionPage() {
                         isRecording={isRecording}
                         onStart={toggleMic}
                         onStop={toggleMic}
-                        disabled={voiceStatus !== "connected"}
+                        disabled={isNewSession || voiceStatus !== "connected"}
                       />
                       <button
                         onClick={handleTextSubmit}
-                        disabled={!textInput.trim()}
+                        disabled={!textInput.trim() || isLoading}
                         className={`w-8 h-8 flex items-center justify-center rounded-full transition-all duration-200 ${
-                          textInput.trim() 
+                          textInput.trim() && !isLoading
                             ? "bg-zinc-900 text-white dark:bg-white dark:text-black hover:scale-105" 
                             : "bg-zinc-100 text-zinc-400 dark:bg-zinc-800 dark:text-zinc-600"
                         }`}
@@ -1101,7 +1102,6 @@ export default function SessionPage() {
                   </div>
                 </div>
               </div>
-              ) : null}
 
               {/* Demo picker */}
               {viewMode === "live" && !isNewSession && (
