@@ -189,6 +189,33 @@ export type RunArtifact = {
   metadata: Record<string, unknown>;
 };
 
+export type WorkflowTemplateInputField = {
+  key: string;
+  label: string;
+  placeholder: string;
+  required: boolean;
+};
+
+export type WorkflowTemplateData = {
+  template_id: string;
+  owner_id: string;
+  name: string;
+  description: string;
+  source_session_id: string;
+  source_run_id?: string | null;
+  instructions: string;
+  input_fields: WorkflowTemplateInputField[];
+  source_artifacts: string[];
+  created_at: string | null;
+  updated_at: string | null;
+  last_used_at?: string | null;
+};
+
+export type WorkflowTemplateRunResult = {
+  session: SessionData;
+  initial_prompt: string;
+};
+
 export type WorkspaceResumeState = {
   available: boolean;
   session: SessionInfo | null;

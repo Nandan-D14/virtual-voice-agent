@@ -126,6 +126,28 @@ class RunArtifact(BaseModel):
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
+class WorkflowTemplateInputField(BaseModel):
+    key: str
+    label: str
+    placeholder: str = ""
+    required: bool = False
+
+
+class WorkflowTemplate(BaseModel):
+    template_id: str
+    owner_id: str
+    name: str
+    description: str = ""
+    source_session_id: str
+    source_run_id: str | None = None
+    instructions: str
+    input_fields: list[WorkflowTemplateInputField] = Field(default_factory=list)
+    source_artifacts: list[str] = Field(default_factory=list)
+    created_at: datetime
+    updated_at: datetime
+    last_used_at: datetime | None = None
+
+
 class ErrorResponse(BaseModel):
     error: str
     detail: str = ""
@@ -142,6 +164,30 @@ class SessionCreateRequest(BaseModel):
 
 class HistoryReuseRequest(BaseModel):
     mode: Literal["continue", "fresh"] = "fresh"
+
+
+class CreateWorkflowTemplateRequest(BaseModel):
+    source_session_id: str | None = None
+    name: str | None = None
+    description: str | None = None
+    instructions: str | None = None
+    input_fields: list[WorkflowTemplateInputField] = Field(default_factory=list)
+
+
+class UpdateWorkflowTemplateRequest(BaseModel):
+    name: str | None = None
+    description: str | None = None
+    instructions: str | None = None
+    input_fields: list[WorkflowTemplateInputField] | None = None
+
+
+class RunWorkflowTemplateRequest(BaseModel):
+    inputs: dict[str, str] = Field(default_factory=dict)
+
+
+class WorkflowTemplateRunResponse(BaseModel):
+    session: SessionResponse
+    initial_prompt: str
 
 
 # ── User Settings ────────────────────────────────────────────────

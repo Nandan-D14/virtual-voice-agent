@@ -11,6 +11,7 @@ import {
   Menu,
   PlusCircle,
   Settings,
+  Workflow,
   X,
 } from "lucide-react";
 import { useAuth } from "@/lib/auth-context";
@@ -23,6 +24,7 @@ import { authenticatedFetch } from "@/lib/api-client";
 const NAV_ITEMS = [
   { href: "/dashboard", icon: LayoutDashboard, label: "Dashboard" },
   { href: "/history", icon: History, label: "History" },
+  { href: "/templates", icon: Workflow, label: "Templates" },
   { href: "/connectors", icon: Cable, label: "Connectors" },
   { href: "/settings/api", icon: Settings, label: "Settings" },
 ] as const;
