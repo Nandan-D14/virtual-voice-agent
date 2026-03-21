@@ -10,11 +10,14 @@ import {
   MessageSquare,
   Search,
   Trash2,
+  Workflow,
 } from "lucide-react";
 
+import { WorkflowTemplateEditorModal } from "@/components/workflow-template-editor-modal";
 import { useAuth } from "@/lib/auth-context";
 import { authenticatedFetch, parseApiError } from "@/lib/api-client";
-import type { HandoffSummary } from "@/lib/message-types";
+import type { HandoffSummary, WorkflowTemplateInputField } from "@/lib/message-types";
+import { useWorkflowTemplates } from "@/lib/use-workflow-templates";
 
 interface HistorySession {
   session_id: string;
@@ -29,7 +32,24 @@ interface HistorySession {
   can_continue_conversation?: boolean;
   has_artifacts?: boolean;
   resume_state?: string | null;
+  context_packet?: { summary?: string | null } | null;
+  current_run_id?: string | null;
+  run_status?: string | null;
 }
+
+type TemplateFormValue = {
+  name: string;
+  description: string;
+  instructions: string;
+  inputFields: WorkflowTemplateInputField[];
+};
+
+const EMPTY_TEMPLATE: TemplateFormValue = {
+  name: "",
+  description: "",
+  instructions: "",
+  inputFields: [],
+};
 
 function summaryPreview(session: HistorySession) {
   return (
@@ -39,13 +59,40 @@ function summaryPreview(session: HistorySession) {
   );
 }
 
+function buildTemplateSeed(session: HistorySession): TemplateFormValue {
+  const headline =
+    session.handoff_summary?.headline ||
+    session.title ||
+    "Workflow template";
+  const description =
+    session.handoff_summary?.preview ||
+    session.summary ||
+    session.context_packet?.summary ||
+    "";
+  const instructions =
+    session.handoff_summary?.preview ||
+    session.context_packet?.summary ||
+    session.summary ||
+    "Describe the reusable workflow instructions here.";
+
+  return {
+    name: headline,
+    description,
+    instructions,
+    inputFields: [],
+  };
+}
+
 export default function HistoryPage() {
   const { user } = useAuth();
+  const { saveSessionAsTemplate, isLoading: templateLoading, error: templateError } = useWorkflowTemplates();
   const [sessions, setSessions] = useState<HistorySession[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
+  const [templateSource, setTemplateSource] = useState<HistorySession | null>(null);
+  const [templateSeed, setTemplateSeed] = useState<TemplateFormValue>(EMPTY_TEMPLATE);
 
   const fetchHistory = useCallback(async () => {
     if (!user) return;
@@ -87,6 +134,30 @@ export default function HistoryPage() {
       }
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : "Failed to delete session");
+    }
+  };
+
+  const openTemplateModal = (session: HistorySession) => {
+    setTemplateSource(session);
+    setTemplateSeed(buildTemplateSeed(session));
+  };
+
+  const closeTemplateModal = () => {
+    setTemplateSource(null);
+    setTemplateSeed(EMPTY_TEMPLATE);
+  };
+
+  const handleTemplateSubmit = async (value: TemplateFormValue) => {
+    if (!templateSource) return;
+    const saved = await saveSessionAsTemplate(templateSource.session_id, {
+      name: value.name,
+      description: value.description,
+      instructions: value.instructions,
+      inputFields: value.inputFields,
+    });
+    if (saved) {
+      closeTemplateModal();
+      await fetchHistory();
     }
   };
 
@@ -191,6 +262,13 @@ export default function HistoryPage() {
                   </div>
 
                   <div className="flex items-center gap-2 shrink-0 flex-wrap">
+                    <button
+                      onClick={() => openTemplateModal(session)}
+                      className="inline-flex items-center gap-2 rounded-full border border-zinc-300 dark:border-white/10 px-4 py-2 text-sm font-medium text-zinc-700 dark:text-zinc-300 hover:bg-white/80 dark:hover:bg-white/5"
+                    >
+                      <Workflow className="w-4 h-4" />
+                      Save as Template
+                    </button>
                     <Link
                       href={`/session/${session.session_id}?continue=1`}
                       className="inline-flex items-center gap-2 rounded-full bg-cyan-600 px-4 py-2 text-sm font-medium text-white hover:bg-cyan-700"
@@ -228,6 +306,23 @@ export default function HistoryPage() {
           ))
         )}
       </div>
+
+      <WorkflowTemplateEditorModal
+        open={Boolean(templateSource)}
+        title="Save as Template"
+        subtitle="Save this successful session as a reusable workflow."
+        submitLabel="Save Template"
+        initialValue={templateSeed}
+        isSubmitting={templateLoading}
+        onClose={closeTemplateModal}
+        onSubmit={(value) => void handleTemplateSubmit(value)}
+      />
+
+      {(templateError || error) && (
+        <div className="fixed bottom-4 right-4 max-w-md rounded-2xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-600 dark:text-red-400 shadow-lg">
+          {templateError || error}
+        </div>
+      )}
     </div>
   );
 }

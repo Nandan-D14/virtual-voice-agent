@@ -104,6 +104,22 @@ class StoredArtifact:
     metadata: dict[str, Any] | None = None
 
 
+@dataclass
+class StoredWorkflowTemplate:
+    template_id: str
+    owner_id: str
+    name: str
+    description: str
+    source_session_id: str
+    source_run_id: str | None
+    instructions: str
+    input_fields: list[dict[str, Any]]
+    source_artifacts: list[str]
+    created_at: datetime
+    updated_at: datetime
+    last_used_at: datetime | None = None
+
+
 class FirestoreHistoryRepository:
     """Sync Firestore access wrapped with async-friendly helpers."""
 
@@ -266,6 +282,56 @@ class FirestoreHistoryRepository:
             path=data.get("path") if isinstance(data.get("path"), str) else None,
             url=data.get("url") if isinstance(data.get("url"), str) else None,
             metadata=data.get("metadata") if isinstance(data.get("metadata"), dict) else {},
+        )
+
+    def _build_stored_workflow_template(self, template_id: str, data: dict[str, Any]) -> StoredWorkflowTemplate:
+        input_fields = data.get("inputFields")
+        normalized_fields: list[dict[str, Any]] = []
+        if isinstance(input_fields, list):
+            for raw in input_fields:
+                if not isinstance(raw, dict):
+                    continue
+                key = raw.get("key") if isinstance(raw.get("key"), str) else ""
+                label = raw.get("label") if isinstance(raw.get("label"), str) else key
+                if not key:
+                    continue
+                normalized_fields.append(
+                    {
+                        "key": key,
+                        "label": label or key,
+                        "placeholder": raw.get("placeholder") if isinstance(raw.get("placeholder"), str) else "",
+                        "required": bool(raw.get("required")),
+                    }
+                )
+
+        source_artifacts = data.get("sourceArtifacts")
+        normalized_artifacts = [
+            str(item).strip()
+            for item in source_artifacts
+            if str(item).strip()
+        ] if isinstance(source_artifacts, list) else []
+
+        return StoredWorkflowTemplate(
+            template_id=template_id,
+            owner_id=data.get("ownerId", ""),
+            name=data.get("name") if isinstance(data.get("name"), str) else "Workflow template",
+            description=data.get("description") if isinstance(data.get("description"), str) else "",
+            source_session_id=(
+                data.get("sourceSessionId")
+                if isinstance(data.get("sourceSessionId"), str)
+                else ""
+            ),
+            source_run_id=(
+                data.get("sourceRunId")
+                if isinstance(data.get("sourceRunId"), str)
+                else None
+            ),
+            instructions=data.get("instructions") if isinstance(data.get("instructions"), str) else "",
+            input_fields=normalized_fields,
+            source_artifacts=normalized_artifacts,
+            created_at=self._coerce_datetime(data.get("createdAt")) or utcnow(),
+            updated_at=self._coerce_datetime(data.get("updatedAt")) or utcnow(),
+            last_used_at=self._coerce_datetime(data.get("lastUsedAt")),
         )
 
     def _list_owner_sessions_sync(self, owner_id: str) -> list[tuple[str, dict[str, Any]]]:
@@ -695,6 +761,97 @@ class FirestoreHistoryRepository:
 
     async def list_run_artifacts(self, session_id: str, run_id: str, limit: int = 100) -> list[StoredArtifact]:
         return await asyncio.to_thread(self._list_run_artifacts_sync, session_id, run_id, limit)
+
+    async def create_workflow_template(
+        self,
+        *,
+        owner_id: str,
+        source_session_id: str,
+        source_run_id: str | None,
+        name: str,
+        description: str,
+        instructions: str,
+        input_fields: list[dict[str, Any]],
+        source_artifacts: list[str],
+    ) -> StoredWorkflowTemplate:
+        return await asyncio.to_thread(
+            self._create_workflow_template_sync,
+            owner_id,
+            source_session_id,
+            source_run_id,
+            name,
+            description,
+            instructions,
+            input_fields,
+            source_artifacts,
+        )
+
+    async def list_workflow_templates(
+        self,
+        owner_id: str,
+        *,
+        limit: int = 100,
+        search: str | None = None,
+    ) -> list[StoredWorkflowTemplate]:
+        return await asyncio.to_thread(
+            self._list_workflow_templates_sync,
+            owner_id,
+            limit,
+            search,
+        )
+
+    async def get_workflow_template(
+        self,
+        owner_id: str,
+        template_id: str,
+    ) -> StoredWorkflowTemplate | None:
+        return await asyncio.to_thread(
+            self._get_workflow_template_sync,
+            owner_id,
+            template_id,
+        )
+
+    async def update_workflow_template(
+        self,
+        *,
+        owner_id: str,
+        template_id: str,
+        name: str | None = None,
+        description: str | None = None,
+        instructions: str | None = None,
+        input_fields: list[dict[str, Any]] | None = None,
+    ) -> StoredWorkflowTemplate | None:
+        return await asyncio.to_thread(
+            self._update_workflow_template_sync,
+            owner_id,
+            template_id,
+            name,
+            description,
+            instructions,
+            input_fields,
+        )
+
+    async def delete_workflow_template(
+        self,
+        owner_id: str,
+        template_id: str,
+    ) -> bool:
+        return await asyncio.to_thread(
+            self._delete_workflow_template_sync,
+            owner_id,
+            template_id,
+        )
+
+    async def mark_workflow_template_used(
+        self,
+        owner_id: str,
+        template_id: str,
+    ) -> StoredWorkflowTemplate | None:
+        return await asyncio.to_thread(
+            self._mark_workflow_template_used_sync,
+            owner_id,
+            template_id,
+        )
 
     def _upsert_user_sync(self, user: AuthenticatedUser) -> None:
         now = utcnow()
@@ -1133,6 +1290,130 @@ class FirestoreHistoryRepository:
             self._build_stored_artifact(session_id, run_id, doc.id, doc.to_dict() or {})
             for doc in docs
         ]
+
+    def _workflow_templates_collection_ref(self, owner_id: str):
+        return self._db.collection("users").document(owner_id).collection("workflowTemplates")
+
+    def _create_workflow_template_sync(
+        self,
+        owner_id: str,
+        source_session_id: str,
+        source_run_id: str | None,
+        name: str,
+        description: str,
+        instructions: str,
+        input_fields: list[dict[str, Any]],
+        source_artifacts: list[str],
+    ) -> StoredWorkflowTemplate:
+        now = utcnow()
+        template_id = uuid.uuid4().hex[:12]
+        payload: dict[str, Any] = {
+            "ownerId": owner_id,
+            "name": name,
+            "description": description,
+            "sourceSessionId": source_session_id,
+            "instructions": instructions,
+            "inputFields": input_fields,
+            "sourceArtifacts": source_artifacts,
+            "createdAt": now,
+            "updatedAt": now,
+        }
+        if source_run_id:
+            payload["sourceRunId"] = source_run_id
+        self._workflow_templates_collection_ref(owner_id).document(template_id).set(payload)
+        return self._build_stored_workflow_template(template_id, payload)
+
+    def _list_workflow_templates_sync(
+        self,
+        owner_id: str,
+        limit: int,
+        search: str | None,
+    ) -> list[StoredWorkflowTemplate]:
+        docs = (
+            self._workflow_templates_collection_ref(owner_id)
+            .order_by("updatedAt", direction=firestore.Query.DESCENDING)
+            .limit(limit)
+            .stream()
+        )
+        templates = [
+            self._build_stored_workflow_template(doc.id, doc.to_dict() or {})
+            for doc in docs
+        ]
+        if search:
+            search_lower = search.strip().lower()
+            if search_lower:
+                templates = [
+                    template
+                    for template in templates
+                    if search_lower in template.name.lower()
+                    or search_lower in template.description.lower()
+                    or search_lower in template.instructions.lower()
+                ]
+        return templates
+
+    def _get_workflow_template_sync(
+        self,
+        owner_id: str,
+        template_id: str,
+    ) -> StoredWorkflowTemplate | None:
+        doc = self._workflow_templates_collection_ref(owner_id).document(template_id).get()
+        if not doc.exists:
+            return None
+        return self._build_stored_workflow_template(doc.id, doc.to_dict() or {})
+
+    def _update_workflow_template_sync(
+        self,
+        owner_id: str,
+        template_id: str,
+        name: str | None,
+        description: str | None,
+        instructions: str | None,
+        input_fields: list[dict[str, Any]] | None,
+    ) -> StoredWorkflowTemplate | None:
+        ref = self._workflow_templates_collection_ref(owner_id).document(template_id)
+        doc = ref.get()
+        if not doc.exists:
+            return None
+        updates: dict[str, Any] = {
+            "updatedAt": utcnow(),
+        }
+        if name is not None:
+            updates["name"] = name
+        if description is not None:
+            updates["description"] = description
+        if instructions is not None:
+            updates["instructions"] = instructions
+        if input_fields is not None:
+            updates["inputFields"] = input_fields
+        ref.set(updates, merge=True)
+        merged = {**(doc.to_dict() or {}), **updates}
+        return self._build_stored_workflow_template(template_id, merged)
+
+    def _delete_workflow_template_sync(
+        self,
+        owner_id: str,
+        template_id: str,
+    ) -> bool:
+        ref = self._workflow_templates_collection_ref(owner_id).document(template_id)
+        doc = ref.get()
+        if not doc.exists:
+            return False
+        ref.delete()
+        return True
+
+    def _mark_workflow_template_used_sync(
+        self,
+        owner_id: str,
+        template_id: str,
+    ) -> StoredWorkflowTemplate | None:
+        ref = self._workflow_templates_collection_ref(owner_id).document(template_id)
+        doc = ref.get()
+        if not doc.exists:
+            return None
+        now = utcnow()
+        ref.set({"lastUsedAt": now, "updatedAt": now}, merge=True)
+        merged = {**(doc.to_dict() or {}), "lastUsedAt": now, "updatedAt": now}
+        return self._build_stored_workflow_template(template_id, merged)
 
     def _append_message_sync(
         self,

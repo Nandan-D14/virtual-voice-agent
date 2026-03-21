@@ -15,6 +15,7 @@ import { MicButton } from "@/components/mic-button";
 import { OutputsPanel } from "@/components/outputs-panel";
 import { RunLogPanel } from "@/components/run-log-panel";
 import { SessionNavSidebar } from "@/components/session-nav-sidebar";
+import { WorkflowTemplateEditorModal } from "@/components/workflow-template-editor-modal";
 import { UnifiedChatPanel } from "@/components/unified-chat-panel";
 import { useLiveDesktop } from "@/components/live-desktop-provider";
 import { useAuth } from "@/lib/auth-context";
@@ -28,10 +29,13 @@ import type {
   SessionInfo,
   SessionPhase,
   WsMessage,
+  WorkflowTemplateInputField,
 } from "@/lib/message-types";
 import { useMicrophone } from "@/lib/use-microphone";
 import { useSession } from "@/lib/use-session";
+import { useWorkflowTemplates } from "@/lib/use-workflow-templates";
 import { useWebSocket } from "@/lib/use-websocket";
+import { useToast } from "@/components/toast-provider";
 
 /* ------------------------------------------------------------------ */
 /*  Unified chat item type                                             */
@@ -87,6 +91,103 @@ function mapStoredMessagesToChatItems(messages: ArchivedMessage[]): ChatItem[] {
   }));
 }
 
+type TemplateFormValue = {
+  name: string;
+  description: string;
+  instructions: string;
+  inputFields: WorkflowTemplateInputField[];
+};
+
+const EMPTY_TEMPLATE: TemplateFormValue = {
+  name: "",
+  description: "",
+  instructions: "",
+  inputFields: [],
+};
+
+function buildSessionTemplateDraft(
+  sessionInfo: SessionInfo | null,
+  runInfo: RunInfo | null,
+  runSteps: RunStep[],
+  runArtifacts: RunArtifact[],
+): TemplateFormValue {
+  const name =
+    sessionInfo?.handoff_summary?.headline ||
+    sessionInfo?.summary ||
+    sessionInfo?.context_packet?.summary ||
+    "Workflow template";
+
+  const description =
+    sessionInfo?.handoff_summary?.preview ||
+    sessionInfo?.summary ||
+    sessionInfo?.context_packet?.summary ||
+    "";
+
+  const lines = [
+    "Use this saved Nexus workflow as the execution pattern for the new task.",
+  ];
+
+  const goal =
+    sessionInfo?.handoff_summary?.goal ||
+    sessionInfo?.context_packet?.goal ||
+    "";
+  if (goal.trim()) {
+    lines.push(`Original goal: ${goal.trim()}`);
+  }
+
+  if (runInfo?.title?.trim()) {
+    lines.push(`Run title: ${runInfo.title.trim()}`);
+  }
+
+  if (description.trim()) {
+    lines.push(`Saved summary: ${description.trim()}`);
+  }
+
+  const latestSteps = runSteps
+    .filter((step) => step.status === "completed")
+    .slice(-3)
+    .map((step) => (step.detail || step.title).trim())
+    .filter(Boolean);
+  if (latestSteps.length > 0) {
+    lines.push("Successful workflow steps to preserve:");
+    lines.push(...latestSteps.map((step) => `- ${step}`));
+  }
+
+  const artifacts = (sessionInfo?.handoff_summary?.artifacts || [])
+    .slice(0, 4)
+    .filter(Boolean);
+  const artifactRefs = (sessionInfo?.context_packet?.artifact_refs || [])
+    .slice(0, 4)
+    .filter(Boolean);
+  const outputRefs = artifacts.length > 0 ? artifacts : artifactRefs;
+  if (outputRefs.length > 0) {
+    lines.push("Reference outputs from this workflow:");
+    lines.push(...outputRefs.map((item) => `- ${item}`));
+  } else if (runArtifacts.length > 0) {
+    lines.push("Reference outputs from this workflow:");
+    lines.push(
+      ...runArtifacts.slice(0, 4).map((artifact) => `- ${artifact.title || artifact.preview || artifact.kind}`),
+    );
+  }
+
+  const recentTurns = sessionInfo?.context_packet?.recent_turns || [];
+  if (recentTurns.length > 0) {
+    lines.push("Recent conversation context:");
+    lines.push(...recentTurns.slice(-4).map((turn) => `- ${turn}`));
+  }
+
+  lines.push(
+    "When this template is run, use the provided template input values and execute the workflow without asking the user to repeat the saved context.",
+  );
+
+  return {
+    name: name.slice(0, 80),
+    description: description.slice(0, 240),
+    instructions: lines.join("\n").trim(),
+    inputFields: [],
+  };
+}
+
 /* ------------------------------------------------------------------ */
 /*  Page component                                                     */
 /* ------------------------------------------------------------------ */
@@ -110,6 +211,8 @@ export default function SessionPage() {
     isLoading,
     error,
   } = useSession();
+  const { saveSessionAsTemplate } = useWorkflowTemplates();
+  const { toast } = useToast();
   const isNewSession = sessionId === "new";
   const shouldAutoResume = searchParams.get("resume") === "1";
   const shouldAutoContinue = searchParams.get("continue") === "1";
@@ -134,6 +237,9 @@ export default function SessionPage() {
   const [pendingMicStart, setPendingMicStart] = useState(false);
   const [activeAgent, setActiveAgent] = useState<string>("nexus");
   const [agentStatus, setAgentStatus] = useState("");
+  const [isTemplateDialogOpen, setIsTemplateDialogOpen] = useState(false);
+  const [templateDraft, setTemplateDraft] = useState<TemplateFormValue>(EMPTY_TEMPLATE);
+  const [isSavingTemplate, setIsSavingTemplate] = useState(false);
   const [voiceStatus, setVoiceStatus] = useState<
     "available" | "unavailable" | "connecting" | "connected" | "reconnecting" | "disconnected"
   >("disconnected");
@@ -480,6 +586,9 @@ export default function SessionPage() {
       setIsDesktopVisible(false);
       setPendingText(null);
       setPendingMicStart(false);
+      setIsTemplateDialogOpen(false);
+      setTemplateDraft(EMPTY_TEMPLATE);
+      setIsSavingTemplate(false);
       setViewMode("live");
 
       if (isNewSession) {
@@ -698,7 +807,6 @@ export default function SessionPage() {
       loadRunState,
       router,
       sessionId,
-      shouldAutoContinue,
       shouldAutoResume,
       user,
       viewMode,
@@ -990,6 +1098,42 @@ export default function SessionPage() {
     void continueCurrentThread();
   }, [continueCurrentThread, isNewSession]);
 
+  const handleOpenSaveTemplate = useCallback(() => {
+    if (isNewSession) {
+      return;
+    }
+    setTemplateDraft(
+      buildSessionTemplateDraft(sessionInfo, runInfo, runSteps, runArtifacts),
+    );
+    setIsTemplateDialogOpen(true);
+  }, [isNewSession, runArtifacts, runInfo, runSteps, sessionInfo]);
+
+  const handleSaveTemplate = useCallback(
+    async (draft: TemplateFormValue) => {
+      if (isNewSession) {
+        return;
+      }
+      setIsSavingTemplate(true);
+      try {
+        const template = await saveSessionAsTemplate(sessionId, {
+          name: draft.name,
+          description: draft.description,
+          instructions: draft.instructions,
+          inputFields: draft.inputFields,
+        });
+        if (!template) {
+          toast("Failed to save this session as a template.", "error");
+          return;
+        }
+        toast(`Saved "${template.name}" as a workflow template.`, "success");
+        setIsTemplateDialogOpen(false);
+      } finally {
+        setIsSavingTemplate(false);
+      }
+    },
+    [isNewSession, saveSessionAsTemplate, sessionId, toast],
+  );
+
   /* ---- Render ---- */
   const hasConversationStarted =
     chatItems.length > 0 ||
@@ -1159,6 +1303,15 @@ export default function SessionPage() {
               </div>
 
               <div className="flex items-center gap-2">
+                {!isNewSession && (
+                  <button
+                    suppressHydrationWarning
+                    onClick={handleOpenSaveTemplate}
+                    className="text-xs px-3 py-1.5 rounded-lg bg-zinc-100 text-zinc-700 border border-zinc-200 dark:bg-zinc-800 dark:text-zinc-200 dark:border-zinc-700 hover:bg-zinc-200 dark:hover:bg-zinc-700 transition-all duration-200"
+                  >
+                    Save as Template
+                  </button>
+                )}
                 {viewMode === "archived" && (
                   <button
                     suppressHydrationWarning
@@ -1441,6 +1594,16 @@ export default function SessionPage() {
                 Loading session...
               </div>
             )}
+            <WorkflowTemplateEditorModal
+              open={isTemplateDialogOpen}
+              title="Save as Template"
+              subtitle="Capture this session as a reusable workflow template."
+              submitLabel="Save Template"
+              initialValue={templateDraft}
+              isSubmitting={isSavingTemplate}
+              onClose={() => setIsTemplateDialogOpen(false)}
+              onSubmit={handleSaveTemplate}
+            />
           </>
         )}
       </div>

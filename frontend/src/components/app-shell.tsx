@@ -11,6 +11,7 @@ import {
   PlusCircle,
   Menu,
   LogOut,
+  Workflow,
   X
 } from "lucide-react";
 import Link from "next/link";
@@ -36,6 +37,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const navigation = [
     { name: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
     { name: "History", href: "/history", icon: History },
+    { name: "Templates", href: "/templates", icon: Workflow },
     { name: "Connectors", href: "/connectors", icon: Cable },
     { name: "Settings", href: "/settings/api", icon: Settings },
   ];
