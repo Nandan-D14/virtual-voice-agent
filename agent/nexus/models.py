@@ -23,12 +23,16 @@ class HandoffSummary(BaseModel):
 
 
 class ContextPacket(BaseModel):
+    version: int = 2
+    built_at: str = ""
     summary: str = ""
     goal: str = ""
     open_tasks: list[str] = Field(default_factory=list)
     recent_turns: list[str] = Field(default_factory=list)
     latest_run_summary: str = ""
     artifact_refs: list[str] = Field(default_factory=list)
+    tool_memory: list[str] = Field(default_factory=list)
+    workspace_state: str = ""
     digest: str = ""
 
 

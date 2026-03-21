@@ -36,13 +36,13 @@ SCREEN: 1324x968 pixels. (0,0) = top-left. Taskbar at bottom (~y=940).
 4. Next action. Repeat.
 
 RULES:
-- NEVER call take_screenshot twice in a row. Always do an action between screenshots.
+- Prefer action between screenshots. If the screen is unchanged, act or summarize instead of blind repeat screenshots.
 - After seeing a screenshot, you MUST perform an action. Don't just describe what you see.
 - If coordinates seem off, adjust by 10-20px and try again. Don't just re-screenshot.
 - You have max ~25 actions per task. Use them wisely — act, don't observe.
 
 ━━━ TOOLS ━━━
-take_screenshot() — See screen, get coordinates. NEVER call twice without acting between calls.
+take_screenshot() — See screen, get coordinates. Prefer action between screenshots and reuse the previous screen understanding when nothing changed.
 move_mouse(x, y) — Move cursor to position.
 left_click(x, y) — Click on elements.
 right_click(x, y) — Context menu.
@@ -82,7 +82,7 @@ SCREEN: 1324x968 pixels. (0,0) = top-left.
 4. Continue until you have what you need
 
 RULES:
-- NEVER call take_screenshot twice in a row. Always do an action (click, type, scroll) between screenshots.
+- Prefer action between screenshots. If the page is unchanged, summarize or continue instead of blind repeat screenshots.
 - When researching a topic: actually open Wikipedia, Google, or relevant sites and READ the content.
 - Scroll down and take screenshots to read full articles — don't just read the first fold.
 - Extract and remember the information you find for later use.
@@ -90,7 +90,7 @@ RULES:
 
 ━━━ TOOLS ━━━
 open_browser(url) — Open a URL. Use "https://www.google.com/search?q=..." for searches.
-take_screenshot() — See the page. NEVER call twice without acting between calls.
+take_screenshot() — See the page. Prefer action between screenshots and reuse the previous page understanding when nothing changed.
 left_click(x, y) — Click links, buttons, fields.
 type_text(text) — Type in search bars or form fields. Click the field first!
 press_key(key) — Enter (submit), Ctrl+L (address bar), Ctrl+T (new tab), Ctrl+W (close tab).
@@ -169,7 +169,7 @@ def _get_model(runtime_config: SessionRuntimeConfig):
         )
     return CredentialedGemini(
         runtime_config=runtime_config,
-        model=runtime_config.gemini_vision_model,
+        model=runtime_config.gemini_agent_model,
     )
 
 

@@ -11,6 +11,7 @@ import {
 
 import { DemoPicker } from "@/components/demo-picker";
 import { DesktopPanel } from "@/components/desktop-panel";
+import { ContextPacketPanel } from "@/components/context-packet-panel";
 import { MicButton } from "@/components/mic-button";
 import { OutputsPanel } from "@/components/outputs-panel";
 import { RunLogPanel } from "@/components/run-log-panel";
@@ -22,6 +23,7 @@ import { useAuth } from "@/lib/auth-context";
 import { AudioPlayer } from "@/lib/audio-playback";
 import type {
   ArchivedMessage,
+  ContextPacket,
   RunArtifact,
   RunInfo,
   RunStep,
@@ -60,7 +62,15 @@ type PendingSessionAction =
   | { type: "openDesktop" }
   | { type: "startMic" };
 
-type SessionSurface = "conversation" | "run_log" | "outputs";
+type SessionSurface = "conversation" | "run_log" | "outputs" | "context";
+
+type ContextPacketMeta = {
+  stage: string;
+  action: string;
+  estimated_tokens?: number;
+  reasoning_model: string;
+  vision_model: string;
+};
 
 function upsertRunStep(prev: RunStep[], nextStep: RunStep): RunStep[] {
   const existingIndex = prev.findIndex((step) => step.step_id === nextStep.step_id);
@@ -228,6 +238,7 @@ export default function SessionPage() {
   const [streamUrl, setStreamUrl] = useState<string | null>(null);
   const [phase, setPhase] = useState<SessionPhase>("idle");
   const [chatItems, setChatItems] = useState<ChatItem[]>([]);
+  const [contextMeta, setContextMeta] = useState<ContextPacketMeta | null>(null);
   const [textInput, setTextInput] = useState("");
   const [hasActivatedSession, setHasActivatedSession] = useState(false);
   const [isContinuingThread, setIsContinuingThread] = useState(false);
@@ -508,6 +519,70 @@ export default function SessionPage() {
         ]);
         break;
 
+      case "budget_warning":
+        setAgentStatus(msg.message);
+        setChatItems((prev) => [
+          ...prev,
+          {
+            kind: "event",
+            type: msg.type,
+            state: msg.state,
+            action: msg.action,
+            message: msg.message,
+            soft_limit: msg.soft_limit,
+            hard_limit: msg.hard_limit,
+            projected_total_tokens: msg.projected_total_tokens,
+            ts,
+          },
+        ]);
+        break;
+
+      case "resume_recovery":
+        setChatItems((prev) => [
+          ...prev,
+          {
+            kind: "event",
+            type: msg.type,
+            state: msg.state,
+            message: msg.message,
+            reused_context_digest: msg.reused_context_digest,
+            ts,
+          },
+        ]);
+        break;
+
+      case "context_packet":
+        setContextMeta({
+          stage: msg.stage,
+          action: msg.action,
+          estimated_tokens: msg.estimated_tokens,
+          reasoning_model: msg.reasoning_model,
+          vision_model: msg.vision_model,
+        });
+        setSessionInfo((prev) =>
+          prev
+            ? {
+                ...prev,
+                context_packet: msg.packet,
+              }
+            : prev,
+        );
+        setChatItems((prev) => [
+          ...prev,
+          {
+            kind: "event",
+            type: msg.type,
+            stage: msg.stage,
+            action: msg.action,
+            estimated_tokens: msg.estimated_tokens,
+            reasoning_model: msg.reasoning_model,
+            vision_model: msg.vision_model,
+            packet: msg.packet,
+            ts,
+          },
+        ]);
+        break;
+
       case "error":
         setPageError(msg.message);
         setAgentStatus("");
@@ -578,6 +653,7 @@ export default function SessionPage() {
       setRunInfo(null);
       setRunSteps([]);
       setRunArtifacts([]);
+      setContextMeta(null);
       setStreamUrl(null);
       setSessionData(null);
       setSessionInfo(null);
@@ -1405,6 +1481,7 @@ export default function SessionPage() {
                         { id: "conversation", label: "Conversation" },
                         { id: "run_log", label: "Run Log" },
                         { id: "outputs", label: "Outputs" },
+                        { id: "context", label: "Context" },
                       ] as const).map((surface) => (
                         <button
                           key={surface.id}
@@ -1465,6 +1542,16 @@ export default function SessionPage() {
                         viewMode === "archived"
                           ? "This archived session does not have a stored run log yet."
                           : "Waiting for the first persisted run step."
+                      }
+                    />
+                  ) : activeSurface === "context" ? (
+                    <ContextPacketPanel
+                      packet={(sessionInfo?.context_packet as ContextPacket | null) ?? null}
+                      meta={contextMeta}
+                      emptyState={
+                        viewMode === "archived"
+                          ? "This archived session does not have compact resume memory stored yet."
+                          : "Compact context will appear here once the session builds or injects it."
                       }
                     />
                   ) : (

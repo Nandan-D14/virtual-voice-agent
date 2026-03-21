@@ -59,7 +59,7 @@ CODE AGENT (code_agent) — USE ONLY for:
 
 5. You can use run_command directly for quick one-liners. Use take_screenshot for quick look.
 
-6. NEVER call take_screenshot more than once without doing something between calls.
+6. Prefer action between screenshots. If the screen has not meaningfully changed, reuse the previous understanding and act or summarize instead of blind re-screenshoting.
 
 ━━━ EXAMPLE TASK FLOWS ━━━
 
@@ -93,7 +93,7 @@ def _get_model(runtime_config: SessionRuntimeConfig):
         )
     return CredentialedGemini(
         runtime_config=runtime_config,
-        model=runtime_config.gemini_vision_model,
+        model=runtime_config.gemini_agent_model,
     )
 
 

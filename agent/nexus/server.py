@@ -110,51 +110,31 @@ def _serialize_context_packet(packet: dict[str, Any] | None) -> ContextPacket | 
     if not isinstance(packet, dict):
         return None
     normalized = {
+        "version": packet.get("version", 2),
+        "built_at": packet.get("builtAt", ""),
         "summary": packet.get("summary", ""),
         "goal": packet.get("goal", ""),
         "open_tasks": packet.get("openTasks", []),
         "recent_turns": packet.get("recentTurns", []),
         "latest_run_summary": packet.get("latestRunSummary", ""),
         "artifact_refs": packet.get("artifactRefs", []),
+        "tool_memory": packet.get("toolMemory", []),
+        "workspace_state": packet.get("workspaceState", ""),
         "digest": packet.get("digest", ""),
     }
     return ContextPacket.model_validate(normalized)
 
 
 def _build_resume_seed_context(stored_session) -> str:
-    lines = ["[SESSION CONTEXT PACKET]"]
     packet = stored_session.context_packet or {}
-    if isinstance(packet, dict):
-        for label, key in (
-            ("Summary", "summary"),
-            ("Goal", "goal"),
-            ("Latest run summary", "latestRunSummary"),
-        ):
-            value = packet.get(key)
-            if isinstance(value, str) and value.strip():
-                lines.append(f"{label}: {value.strip()}")
-        for label, key in (
-            ("Open tasks", "openTasks"),
-            ("Recent turns", "recentTurns"),
-            ("Artifacts", "artifactRefs"),
-        ):
-            values = packet.get(key)
-            if isinstance(values, list):
-                compact = [str(item).strip() for item in values if str(item).strip()]
-                if compact:
-                    lines.append(f"{label}:")
-                    lines.extend(f"- {item}" for item in compact[:4])
-    handoff = stored_session.handoff_summary or {}
-    if isinstance(handoff, dict):
-        preview = handoff.get("preview")
-        recommended = handoff.get("recommended_next_step")
-        if isinstance(preview, str) and preview.strip():
-            lines.append(f"Handoff preview: {preview.strip()}")
-        if isinstance(recommended, str) and recommended.strip():
-            lines.append(f"Recommended next step: {recommended.strip()}")
-    lines.append("[END SESSION CONTEXT PACKET]")
-    lines.append("Continue naturally without asking the user to repeat prior context.")
-    return "\n".join(lines)
+    digest = packet.get("digest") if isinstance(packet, dict) and isinstance(packet.get("digest"), str) else ""
+    if not digest:
+        return ""
+    return (
+        "[RESUME CONTEXT AVAILABLE]\n"
+        f"Digest: {digest}\n"
+        "Load the stored compact session context automatically instead of asking the user to restate prior work."
+    )
 
 
 def _build_session_info_from_stored(stored_session) -> SessionInfo:
@@ -499,7 +479,10 @@ async def _prepare_user_runtime(user: AuthenticatedUser) -> dict[str, Any]:
     if quota["remaining"] <= 0:
         raise HTTPException(
             status_code=403,
-            detail=f"Token quota exceeded. You've used {quota['used']:,} of {quota['limit']:,} tokens.",
+            detail=(
+                f"{quota.get('plan_name', settings.default_plan_name)} balance exhausted. "
+                f"You've used {quota['used']:,} of {quota['limit']:,} credits."
+            ),
         )
     return user_settings
 
@@ -551,7 +534,7 @@ async def _continue_existing_session_for_user(
             runtime_config=resolve_session_runtime_config(user_settings),
             created_at=stored_session.created_at,
             resume_mode="continue_latest_workspace" if exact_workspace_resume_available else "fresh",
-            seed_context=_build_resume_seed_context(stored_session),
+            seed_context="",
             initial_title=stored_session.title or "Continued session",
             artifact_count=stored_session.artifact_count,
             exact_workspace_resume_available=exact_workspace_resume_available,
@@ -1160,7 +1143,7 @@ async def update_user_settings(
 
 @app.get("/api/v1/user/quota")
 async def get_user_quota(user: AuthenticatedUser = Depends(require_current_user)):
-    """Get the user's token quota (limit, used, remaining)."""
+    """Get the user's plan quota, with credit-first compatibility fields."""
     quota = await history_repository.get_user_quota(user.uid)
     return quota
 

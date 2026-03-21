@@ -7,6 +7,60 @@
 
 // ── Server -> Client (Text frames) ─────────────────────────────────
 
+export type PlanQuota = {
+  limit: number;
+  used: number;
+  remaining: number;
+  unit: "credits" | string;
+  plan_id: string;
+  plan_name: string;
+  price_usd: number;
+  plan?: {
+    id: string;
+    name: string;
+    price_usd: number;
+    status: string;
+  };
+  credits?: {
+    limit: number;
+    used: number;
+    remaining: number;
+    unit: "credits" | string;
+    unit_usd?: number;
+  };
+  tokens?: {
+    used: number;
+    safety_limit: number;
+  };
+};
+
+export const DEFAULT_PLAN_QUOTA: PlanQuota = {
+  limit: 4000,
+  used: 0,
+  remaining: 4000,
+  unit: "credits",
+  plan_id: "starter_5",
+  plan_name: "$5 Starter",
+  price_usd: 5,
+  plan: {
+    id: "starter_5",
+    name: "$5 Starter",
+    price_usd: 5,
+    status: "active",
+  },
+  credits: {
+    limit: 4000,
+    used: 0,
+    remaining: 4000,
+    unit: "credits",
+    unit_usd: 0.001,
+  },
+  tokens: {
+    used: 0,
+    safety_limit: 100000,
+  },
+};
+
 export type WsMessage =
   | { type: "sandbox_status"; status: string }
   | { type: "vnc_url"; url: string }
@@ -26,7 +80,31 @@ export type WsMessage =
   | { type: "bg_task_progress"; task_id: string; progress: number; message: string }
   | { type: "bg_task_complete"; task_id: string; success: boolean; result: string }
   | { type: "voice_status"; status: string; message: string }
-  | { type: "quota_update"; limit: number; used: number; remaining: number }
+  | ({ type: "quota_update" } & PlanQuota)
+  | {
+      type: "budget_warning";
+      state: string;
+      action: string;
+      message: string;
+      soft_limit: number;
+      hard_limit: number;
+      projected_total_tokens?: number;
+    }
+  | {
+      type: "resume_recovery";
+      state: string;
+      message: string;
+      reused_context_digest: string;
+    }
+  | {
+      type: "context_packet";
+      stage: string;
+      action: string;
+      estimated_tokens?: number;
+      reasoning_model: string;
+      vision_model: string;
+      packet: ContextPacket;
+    }
   | { type: "error"; code: string; message: string }
   | { type: "pong" };
 
@@ -71,12 +149,16 @@ export type HandoffSummary = {
 };
 
 export type ContextPacket = {
+  version: number;
+  built_at: string;
   summary: string;
   goal: string;
   open_tasks: string[];
   recent_turns: string[];
   latest_run_summary: string;
   artifact_refs: string[];
+  tool_memory: string[];
+  workspace_state: string;
   digest: string;
 };
 

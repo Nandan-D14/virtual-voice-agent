@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import logging
 from typing import TYPE_CHECKING, Any
 
@@ -10,10 +11,16 @@ from starlette.websockets import WebSocket
 
 from nexus.agent import create_agent, create_multi_agent, create_runner, run_agent_turn
 from nexus.background_tasks import BackgroundTask, BackgroundTaskManager
+from nexus.billing import calculate_screenshot_credits
 from nexus.history_repository import FirestoreHistoryRepository
 from nexus.runtime_config import SessionRuntimeConfig
 from nexus.sandbox import SandboxDeadError
-from nexus.tools._context import set_bg_task_manager, set_runtime_config, set_sandbox
+from nexus.tools._context import (
+    set_bg_task_manager,
+    set_runtime_config,
+    set_sandbox,
+    set_session_id,
+)
 from nexus.config import settings
 from nexus.prompts.system import SYSTEM_PROMPT, VOICE_SYSTEM_PROMPT
 from nexus.usage import TokenUsageRecord
@@ -29,7 +36,7 @@ class _AgentStopped(Exception):
 
 
 class QuotaExceededError(Exception):
-    """Raised when the user's token quota has been exhausted."""
+    """Raised when the user's starter-plan credits have been exhausted."""
 
 
 class NexusOrchestrator:
@@ -88,8 +95,15 @@ class NexusOrchestrator:
         # Voice is lazy — only connects when user explicitly starts mic
         self._voice_started = asyncio.Event()
 
-        # Prior-conversation context injected into the first agent turn on reconnect
-        self._prior_context: str | None = None
+        # Compact memory injected into the first agent turn on reconnect/resume.
+        self._prior_context_packet: dict[str, Any] | None = None
+        self._prior_context_fallback: str | None = None
+        self._seed_context: str = session.seed_context.strip()
+        self._last_user_message: str = ""
+        self._turn_screenshot_count: int = 0
+        self._turn_tool_summaries: list[str] = []
+        self._budget_stop_requested: bool = False
+        self._budget_stop_reason: str = ""
 
     async def initialize(self) -> None:
         """Set up ADK session. Voice connection is deferred until user starts mic."""
@@ -97,6 +111,7 @@ class NexusOrchestrator:
         set_sandbox(self.session.sandbox)
         set_bg_task_manager(self.bg_task_manager)
         set_runtime_config(self.runtime_config)
+        set_session_id(self.session.id)
 
         # Voice is NOT connected here — deferred until start_voice() is called
         if self.voice:
@@ -110,30 +125,36 @@ class NexusOrchestrator:
         )
         self._adk_session_id = adk_session.id
 
-        # Replay prior conversation context so the agent remembers past turns
+        # Load compact session memory so resume/continue turns stay cheap.
         if self.history_repository:
             try:
                 stored_session = await self.history_repository.get_session(self.session.id)
                 if stored_session and stored_session.context_packet:
-                    self._prior_context = self._format_context_packet(stored_session.context_packet)
+                    self._prior_context_packet = stored_session.context_packet
                     logger.info("Using cached context packet for session %s", self.session.id)
                 else:
-                    messages = await self.history_repository.get_session_messages(self.session.id)
-                    if messages:
-                        self._prior_context = self._format_history_context(messages)
+                    await self.history_repository.refresh_session_handoff(
+                        self.session.id,
+                        owner_id=self.session.owner_id,
+                    )
+                    refreshed_session = await self.history_repository.get_session(self.session.id)
+                    if refreshed_session and refreshed_session.context_packet:
+                        self._prior_context_packet = refreshed_session.context_packet
                         logger.info(
-                            "History replay fallback: injecting %d messages into session %s",
-                            len(messages),
+                            "Rebuilt context packet for session %s during initialize",
                             self.session.id,
                         )
+                    else:
+                        messages = await self.history_repository.get_session_messages(self.session.id)
+                        if messages:
+                            self._prior_context_packet = self._build_local_context_packet(messages)
+                            logger.info(
+                                "Using local compact fallback packet with %d messages for session %s",
+                                len(messages),
+                                self.session.id,
+                            )
             except Exception:
                 logger.warning("Failed to load history for replay", exc_info=True)
-
-        if self.session.seed_context:
-            if self._prior_context:
-                self._prior_context = f"{self._prior_context}\n\n{self.session.seed_context}"
-            else:
-                self._prior_context = self.session.seed_context
 
         # Notify frontend
         await self._send_json({
@@ -220,7 +241,7 @@ class NexusOrchestrator:
         """Handle direct text input (bypass voice)."""
         await self._send_json({"type": "transcript", "role": "user", "text": text})
         await self._persist_message(role="user", source="typed", text=text)
-        await self._run_agent_tracked(self._with_prior_context(text), source="typed")
+        await self._run_agent_tracked(await self._build_turn_input(text), source="typed")
 
     def handle_permission_response(self, task_id: str, approved: bool) -> None:
         """Route a permission_response from the frontend to the bg task manager."""
@@ -230,7 +251,7 @@ class NexusOrchestrator:
         """Called when Gemini Live produces a final user transcript."""
         await self._send_json({"type": "transcript", "role": "user", "text": text})
         await self._persist_message(role="user", source="voice", text=text)
-        await self._run_agent_tracked(self._with_prior_context(text), source="voice")
+        await self._run_agent_tracked(await self._build_turn_input(text), source="voice")
 
     async def handle_analyze_screen(self) -> None:
         """Take screenshot and send analysis to frontend."""
@@ -412,6 +433,10 @@ class NexusOrchestrator:
     _RATE_LIMIT_MAX_RETRIES = 4
     _RATE_LIMIT_BASE_WAIT = 10.0  # seconds; doubles each attempt: 10, 20, 40, 80
     _RATE_LIMIT_PATTERNS = ("429", "RESOURCE_EXHAUSTED", "quota", "rate limit", "too many requests")
+    _RESUME_PACKET_SOFT_TOKENS = 2_000
+    _RESUME_PACKET_HARD_TOKENS = 3_200
+    _SCREENSHOT_WARN_THRESHOLD = 6
+    _SCREENSHOT_WARNING_INTERVAL = 4
 
     def _is_rate_limit_error(self, exc: BaseException) -> bool:
         msg = str(exc).lower()
@@ -457,16 +482,48 @@ class NexusOrchestrator:
 
         raise RuntimeError(f"Rate limit exceeded after {self._RATE_LIMIT_MAX_RETRIES} retries: {last_exc}")
 
-    def _with_prior_context(self, text: str) -> str:
-        """Prepend prior-conversation context to the first user message after reconnect.
+    async def _build_turn_input(self, text: str) -> str:
+        """Build the next turn input with compact resume context injected once."""
+        self._last_user_message = text.strip()
+        parts: list[str] = []
 
-        On second and subsequent calls ``_prior_context`` is already None, so the
-        method is a no-op and returns the original text as-is.
-        """
-        if self._prior_context:
-            full_text = f"{self._prior_context}\n\nUser: {text}"
-            self._prior_context = None
-            return full_text
+        if self._seed_context:
+            parts.append(self._seed_context)
+
+        if self._prior_context_packet:
+            serialized, action = self._format_context_packet_for_budget(
+                self._prior_context_packet,
+                user_text=self._last_user_message,
+            )
+            estimated_tokens = self._estimate_tokens(serialized) + self._estimate_tokens(self._last_user_message)
+            if action:
+                await self._emit_budget_warning(
+                    state="soft_limit",
+                    action=action,
+                    message="Compacted resume memory before sending the turn to the model.",
+                    projected_total_tokens=estimated_tokens,
+                )
+            if serialized:
+                parts.append(serialized)
+                await self._emit_context_packet(
+                    stage="resume_injected",
+                    packet=self._prior_context_packet,
+                    action=action,
+                    estimated_tokens=estimated_tokens,
+                )
+            self._prior_context_packet = None
+            self._prior_context_fallback = None
+            self._seed_context = ""
+        elif self._prior_context_fallback:
+            parts.append(self._prior_context_fallback)
+            self._prior_context_fallback = None
+            self._seed_context = ""
+        elif self._seed_context:
+            self._seed_context = ""
+
+        if parts:
+            joined = "\n\n".join(part for part in parts if part.strip())
+            return f"{joined}\n\nUser: {text}"
         return text
 
     @staticmethod
@@ -489,13 +546,52 @@ class NexusOrchestrator:
             "Continue naturally from where you left off."
         )
 
-    @staticmethod
-    def _format_context_packet(packet: dict[str, Any]) -> str:
+    def _build_local_context_packet(self, messages: list[dict[str, Any]]) -> dict[str, Any]:
+        recent_turns: list[str] = []
+        for message in messages[-4:]:
+            role = "User" if message.get("role") == "user" else "Agent"
+            text = self._clip_text(message.get("text"), 180)
+            if text:
+                recent_turns.append(f"{role}: {text}")
+
+        summary = ""
+        for message in reversed(messages):
+            text = self._clip_text(message.get("text"), 320)
+            if text:
+                summary = text
+                break
+
+        packet = {
+            "version": 2,
+            "builtAt": "",
+            "summary": summary or "Continue from the recent conversation context.",
+            "goal": "Continue the previous workspace task.",
+            "openTasks": [],
+            "recentTurns": recent_turns,
+            "latestRunSummary": "",
+            "artifactRefs": [],
+            "toolMemory": [],
+            "workspaceState": "Recovered from recent session messages.",
+        }
+        digest_source = "|".join(recent_turns) or packet["summary"]
+        packet["digest"] = hashlib.sha256(digest_source.encode("utf-8")).hexdigest()[:16]
+        return packet
+
+    @classmethod
+    def _estimate_tokens(cls, text: str) -> int:
+        stripped = text.strip()
+        if not stripped:
+            return 0
+        return max(1, (len(stripped) + 3) // 4)
+
+    @classmethod
+    def _format_context_packet(cls, packet: dict[str, Any]) -> str:
         lines = ["[CACHED SESSION CONTEXT]"]
         for label, key in (
             ("Summary", "summary"),
             ("Goal", "goal"),
             ("Latest run summary", "latestRunSummary"),
+            ("Workspace state", "workspaceState"),
         ):
             value = packet.get(key)
             if isinstance(value, str) and value.strip():
@@ -504,6 +600,7 @@ class NexusOrchestrator:
             ("Open tasks", "openTasks"),
             ("Recent turns", "recentTurns"),
             ("Artifacts", "artifactRefs"),
+            ("Tool memory", "toolMemory"),
         ):
             values = packet.get(key)
             if isinstance(values, list):
@@ -515,6 +612,99 @@ class NexusOrchestrator:
         lines.append("Continue naturally from where you left off.")
         return "\n".join(lines)
 
+    @staticmethod
+    def _context_packet_for_client(packet: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "version": int(packet.get("version", 2) or 2),
+            "built_at": str(packet.get("builtAt", "") or ""),
+            "summary": str(packet.get("summary", "") or ""),
+            "goal": str(packet.get("goal", "") or ""),
+            "open_tasks": [str(item) for item in (packet.get("openTasks") or []) if str(item).strip()],
+            "recent_turns": [str(item) for item in (packet.get("recentTurns") or []) if str(item).strip()],
+            "latest_run_summary": str(packet.get("latestRunSummary", "") or ""),
+            "artifact_refs": [str(item) for item in (packet.get("artifactRefs") or []) if str(item).strip()],
+            "tool_memory": [str(item) for item in (packet.get("toolMemory") or []) if str(item).strip()],
+            "workspace_state": str(packet.get("workspaceState", "") or ""),
+            "digest": str(packet.get("digest", "") or ""),
+        }
+
+    async def _emit_context_packet(
+        self,
+        *,
+        stage: str,
+        packet: dict[str, Any],
+        action: str | None = None,
+        estimated_tokens: int | None = None,
+    ) -> None:
+        payload: dict[str, Any] = {
+            "type": "context_packet",
+            "stage": stage,
+            "action": action or "full",
+            "packet": self._context_packet_for_client(packet),
+            "reasoning_model": self.runtime_config.gemini_agent_model,
+            "vision_model": self.runtime_config.gemini_vision_model,
+        }
+        if estimated_tokens is not None:
+            payload["estimated_tokens"] = estimated_tokens
+        await self._send_json(payload)
+
+    def _format_context_packet_for_budget(
+        self,
+        packet: dict[str, Any],
+        *,
+        user_text: str,
+    ) -> tuple[str, str | None]:
+        def copy_packet() -> dict[str, Any]:
+            return {
+                **packet,
+                "openTasks": list(packet.get("openTasks") or []),
+                "recentTurns": list(packet.get("recentTurns") or []),
+                "artifactRefs": list(packet.get("artifactRefs") or []),
+                "toolMemory": list(packet.get("toolMemory") or []),
+            }
+
+        variants: list[tuple[str | None, dict[str, Any]]] = []
+
+        full = copy_packet()
+        variants.append((None, full))
+
+        no_artifacts = copy_packet()
+        no_artifacts["artifactRefs"] = []
+        variants.append(("drop_artifacts", no_artifacts))
+
+        no_recent_turns = copy_packet()
+        no_recent_turns["artifactRefs"] = []
+        no_recent_turns["recentTurns"] = []
+        variants.append(("drop_recent_turns", no_recent_turns))
+
+        reduced_tool_memory = copy_packet()
+        reduced_tool_memory["artifactRefs"] = []
+        reduced_tool_memory["recentTurns"] = []
+        reduced_tool_memory["toolMemory"] = [
+            self._clip_text(str(item), 90)
+            for item in (packet.get("toolMemory") or [])[:2]
+            if self._clip_text(str(item), 90)
+        ]
+        variants.append(("compress_tool_memory", reduced_tool_memory))
+
+        minimal = copy_packet()
+        minimal["artifactRefs"] = []
+        minimal["recentTurns"] = []
+        minimal["toolMemory"] = []
+        minimal["openTasks"] = list(minimal.get("openTasks") or [])[:2]
+        variants.append(("summary_only", minimal))
+
+        selected_action: str | None = None
+        selected_payload = self._format_context_packet(minimal)
+        for action, variant in variants:
+            payload = self._format_context_packet(variant)
+            projected = self._estimate_tokens(payload) + self._estimate_tokens(user_text)
+            if projected <= self._RESUME_PACKET_SOFT_TOKENS:
+                return payload, action
+            selected_action = action
+            selected_payload = payload
+        return selected_payload, selected_action
+
     async def _reconnect_sandbox(self) -> bool:
         """Attempt to create a new sandbox when the current one has died.
 
@@ -522,6 +712,16 @@ class NexusOrchestrator:
         """
         logger.info("Attempting sandbox reconnect for session %s", self.session.id)
         await self._send_json({"type": "sandbox_status", "status": "reconnecting"})
+        await self._send_json({
+            "type": "resume_recovery",
+            "state": "reconnecting",
+            "message": "Reconnecting the sandbox and reusing compact session memory.",
+            "reused_context_digest": (
+                self._prior_context_packet.get("digest", "")
+                if isinstance(self._prior_context_packet, dict)
+                else ""
+            ),
+        })
 
         try:
             loop = asyncio.get_running_loop()
@@ -532,6 +732,16 @@ class NexusOrchestrator:
             set_sandbox(self.session.sandbox)
             await self._send_json({"type": "sandbox_status", "status": "ready"})
             await self._send_json({"type": "vnc_url", "url": self.session.stream_url})
+            await self._send_json({
+                "type": "resume_recovery",
+                "state": "recovered",
+                "message": "Sandbox recovered. Continuing with compact session memory.",
+                "reused_context_digest": (
+                    self._prior_context_packet.get("digest", "")
+                    if isinstance(self._prior_context_packet, dict)
+                    else ""
+                ),
+            })
             logger.info(
                 "Sandbox reconnected for session %s (new stream_url=%s)",
                 self.session.id,
@@ -545,11 +755,21 @@ class NexusOrchestrator:
                 "status": "error",
                 "message": f"Failed to reconnect sandbox: {exc}",
             })
+            await self._send_json({
+                "type": "resume_recovery",
+                "state": "failed",
+                "message": f"Failed to recover the sandbox: {exc}",
+                "reused_context_digest": "",
+            })
             return False
 
     async def _run_agent_tracked(self, message: str, *, source: str) -> None:
         """Wrap _run_agent in a cancellable task and await it."""
         self._stop_requested = False
+        self._turn_screenshot_count = 0
+        self._turn_tool_summaries = []
+        self._budget_stop_requested = False
+        self._budget_stop_reason = ""
         self._current_turn_step_id = await self._create_step(
             step_type="agent_turn",
             title="Process request",
@@ -595,7 +815,7 @@ class NexusOrchestrator:
         """Run an ADK agent turn and stream events to frontend."""
         self.session.touch()
 
-        # Check token quota before running agent
+        # Check starter-plan credits before running agent
         if self.history_repository:
             try:
                 quota = await self.history_repository.get_user_quota(self.session.owner_id)
@@ -603,17 +823,15 @@ class NexusOrchestrator:
                     await self._send_json({
                         "type": "error",
                         "code": "QUOTA_EXCEEDED",
-                        "message": f"You've used all {quota['limit']:,} tokens in your free quota. Please upgrade to continue.",
+                        "message": (
+                            f"{quota.get('plan_name', settings.default_plan_name)} balance exhausted. "
+                            "This development entitlement has no remaining credits."
+                        ),
                     })
-                    await self._send_json({
-                        "type": "quota_update",
-                        "limit": quota["limit"],
-                        "used": quota["used"],
-                        "remaining": 0,
-                    })
+                    await self._send_json(self._quota_update_payload(quota))
                     return {
                         "status": "failed",
-                        "summary": "Token quota exceeded.",
+                        "summary": "Starter plan balance exhausted.",
                     }
             except Exception:
                 logger.debug("Quota check failed, allowing turn", exc_info=True)
@@ -693,6 +911,30 @@ class NexusOrchestrator:
             }
 
         except _AgentStopped:
+            if self._budget_stop_requested:
+                summary = self._build_budget_partial_summary()
+                await self._send_json({
+                    "type": "transcript",
+                    "role": "agent",
+                    "text": summary,
+                })
+                await self._persist_message(role="agent", source="agent", text=summary)
+                await self._send_json({
+                    "type": "agent_complete",
+                    "summary": summary[:200],
+                })
+                await self._mark_summary(summary)
+                await self._create_artifact(
+                    kind="summary",
+                    title="Budget-safe partial summary",
+                    preview=self._clip_text(summary, 280),
+                    source_step_id=self._current_turn_step_id,
+                    metadata={"source": "budget_stop"},
+                )
+                return {
+                    "status": "completed",
+                    "summary": summary,
+                }
             logger.info("Agent stopped via _AgentStopped for session %s", self.session.id)
             raise
 
@@ -731,6 +973,24 @@ class NexusOrchestrator:
             for fc in function_calls:
                 tool_name = self._get_attr(fc, "name", "tool_name") or str(fc)
                 tool_args = self._get_attr(fc, "args", "tool_input") or {}
+                if tool_name == "take_screenshot":
+                    next_count = self._turn_screenshot_count + 1
+                    if (
+                        next_count == self._SCREENSHOT_WARN_THRESHOLD
+                        or (
+                            next_count > self._SCREENSHOT_WARN_THRESHOLD
+                            and (next_count - self._SCREENSHOT_WARN_THRESHOLD) % self._SCREENSHOT_WARNING_INTERVAL == 0
+                        )
+                    ):
+                        await self._emit_budget_warning(
+                            state="soft_limit",
+                            action="prefer_cached_or_delta_analysis",
+                            message=(
+                                "Heavy screen observation detected. The run will continue, "
+                                "but screenshot analysis now prefers cached or delta reuse when possible."
+                            ),
+                            projected_total_tokens=next_count,
+                        )
                 step_id = await self._create_step(
                     step_type="tool_call",
                     title=f"Tool: {tool_name}",
@@ -763,7 +1023,11 @@ class NexusOrchestrator:
                     tool_name = self._get_attr(fn_resp, "name") or "unknown"
                     output = self._get_attr(fn_resp, "response")
                     output_mapping = self._coerce_mapping(output)
-                    output_str = str(output if output is not None else "")[:2000]
+                    output_str = str(
+                        output_mapping.get("summary")
+                        or output_mapping.get("description")
+                        or output if output is not None else ""
+                    )[:2000]
                     step_id = None
                     pending_steps = self._tool_step_ids.get(tool_name, [])
                     if pending_steps:
@@ -792,6 +1056,20 @@ class NexusOrchestrator:
                                 "image_b64": img_b64,
                                 "analysis": output_mapping.get("description", ""),
                             })
+                        await self._charge_screenshot_credits(
+                            analysis_mode=(
+                                output_mapping.get("analysis_mode")
+                                if isinstance(output_mapping.get("analysis_mode"), str)
+                                else None
+                            ),
+                        )
+
+                    await self._record_tool_memory(
+                        tool_name=tool_name,
+                        output_mapping=output_mapping,
+                        output_str=output_str,
+                        step_id=step_id,
+                    )
 
                     artifact_ref = self._extract_reference_artifact(tool_name, output_mapping, output_str)
                     if artifact_ref:
@@ -995,6 +1273,104 @@ class NexusOrchestrator:
         except Exception:
             logger.warning("Failed to send WS message: %s", data.get("type"))
 
+    @staticmethod
+    def _quota_update_payload(quota: dict[str, Any]) -> dict[str, Any]:
+        payload = {"type": "quota_update"}
+        payload.update(quota)
+        return payload
+
+    async def _emit_budget_warning(
+        self,
+        *,
+        state: str,
+        action: str,
+        message: str,
+        projected_total_tokens: int | None = None,
+    ) -> None:
+        payload: dict[str, Any] = {
+            "type": "budget_warning",
+            "state": state,
+            "action": action,
+            "message": message,
+            "soft_limit": self._RESUME_PACKET_SOFT_TOKENS,
+            "hard_limit": self._RESUME_PACKET_HARD_TOKENS,
+        }
+        if projected_total_tokens is not None:
+            payload["projected_total_tokens"] = projected_total_tokens
+        await self._send_json(payload)
+
+    def _build_budget_partial_summary(self) -> str:
+        findings = self._turn_tool_summaries[:4]
+        lines = [
+            "Stopped early to stay within the run budget before the task could expand further.",
+        ]
+        if self._last_user_message:
+            lines.append(f"Task: {self._clip_text(self._last_user_message, 240)}")
+        if findings:
+            lines.append("Findings so far:")
+            lines.extend(f"- {item}" for item in findings)
+        if self._budget_stop_reason:
+            lines.append(f"Why it stopped: {self._clip_text(self._budget_stop_reason, 240)}")
+        lines.append("Continue if you want deeper research or more browsing.")
+        return "\n".join(lines)
+
+    async def _record_tool_memory(
+        self,
+        *,
+        tool_name: str,
+        output_mapping: dict[str, Any],
+        output_str: str,
+        step_id: str | None,
+    ) -> None:
+        summary = ""
+        metadata: dict[str, Any] = {"tool": tool_name}
+
+        if tool_name == "take_screenshot":
+            summary = self._clip_text(str(output_mapping.get("description") or output_str), 180)
+            if not summary:
+                return
+            self._turn_screenshot_count += 1
+            analysis_mode = output_mapping.get("analysis_mode")
+            if isinstance(analysis_mode, str) and analysis_mode.strip():
+                metadata["analysis_mode"] = analysis_mode.strip()
+            delta = output_mapping.get("delta")
+            if isinstance(delta, str) and delta.strip():
+                metadata["delta"] = delta.strip()
+        elif tool_name == "run_command":
+            summary = self._clip_text(
+                str(output_mapping.get("summary") or output_mapping.get("stderr_excerpt") or output_str),
+                180,
+            )
+            if not summary:
+                return
+            command = output_mapping.get("command")
+            if isinstance(command, str) and command.strip():
+                metadata["command"] = self._clip_text(command, 120)
+            exit_code = output_mapping.get("exit_code")
+            if isinstance(exit_code, int):
+                metadata["exit_code"] = exit_code
+        else:
+            return
+
+        entry = f"{tool_name}: {summary}"
+        self._turn_tool_summaries.append(entry)
+        self._turn_tool_summaries = self._turn_tool_summaries[-6:]
+
+        if not self.history_repository:
+            return
+        try:
+            content_hash = hashlib.sha256(entry.encode("utf-8")).hexdigest()[:16]
+            await self.history_repository.record_tool_memory(
+                session_id=self.session.id,
+                kind=tool_name,
+                summary=summary,
+                content_hash=content_hash,
+                source_step_id=step_id,
+                metadata=metadata,
+            )
+        except Exception:
+            logger.exception("Failed to persist tool memory for session %s", self.session.id)
+
     async def _persist_message(self, *, role: str, source: str, text: str) -> None:
         if not self.history_repository or not text.strip():
             return
@@ -1013,7 +1389,7 @@ class NexusOrchestrator:
         if not self.history_repository:
             return
         try:
-            await self.history_repository.append_token_usage(
+            credits_charged = await self.history_repository.append_token_usage(
                 session_id=self.session.id,
                 owner_id=self.session.owner_id,
                 source=usage.source,
@@ -1022,23 +1398,47 @@ class NexusOrchestrator:
                 output_tokens=usage.output_tokens,
                 total_tokens=usage.total_tokens,
             )
-            # Increment user-level quota and notify frontend
+            # Tokens remain internal telemetry; credits are the user-facing allowance.
             if usage.total_tokens > 0:
-                quota = await self.history_repository.increment_user_token_usage(
-                    self.session.owner_id, usage.total_tokens
+                await self.history_repository.increment_user_token_usage(
+                    self.session.owner_id,
+                    usage.total_tokens,
                 )
-                await self._send_json({
-                    "type": "quota_update",
-                    "limit": quota["limit"],
-                    "used": quota["used"],
-                    "remaining": quota["remaining"],
-                })
+            if credits_charged > 0:
+                quota = await self.history_repository.increment_user_credit_usage(
+                    self.session.owner_id,
+                    credits_charged,
+                )
+                await self._send_json(self._quota_update_payload(quota))
         except Exception:
             logger.exception(
                 "Failed to persist token usage for session %s from %s",
                 self.session.id,
                 usage.source,
             )
+
+    async def _charge_screenshot_credits(self, *, analysis_mode: str | None) -> None:
+        if not self.history_repository:
+            return
+        credits = calculate_screenshot_credits(analysis_mode)
+        if credits <= 0:
+            return
+        try:
+            await self.history_repository.record_credit_charge(
+                session_id=self.session.id,
+                owner_id=self.session.owner_id,
+                source="vision.screenshot",
+                model=self.runtime_config.gemini_vision_model,
+                credits=credits,
+                metadata={"analysis_mode": analysis_mode or "vision_full"},
+            )
+            quota = await self.history_repository.increment_user_credit_usage(
+                self.session.owner_id,
+                credits,
+            )
+            await self._send_json(self._quota_update_payload(quota))
+        except Exception:
+            logger.exception("Failed to charge screenshot credits for session %s", self.session.id)
 
     async def _mark_summary(
         self,
@@ -1061,6 +1461,12 @@ class NexusOrchestrator:
                 owner_id=self.session.owner_id,
                 resume_state=status,
             )
+            stored_session = await self.history_repository.get_session(self.session.id)
+            if stored_session and stored_session.context_packet:
+                await self._emit_context_packet(
+                    stage="refreshed",
+                    packet=stored_session.context_packet,
+                )
         except Exception:
             logger.exception("Failed to update Firestore summary for session %s", self.session.id)
 

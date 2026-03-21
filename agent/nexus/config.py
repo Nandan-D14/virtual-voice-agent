@@ -36,11 +36,13 @@ class Settings(BaseSettings):
     google_cloud_region: str = "global"  # For Gemini 3 vision/agent (must be "global")
 
     # Gemini models
+    gemini_agent_model: str = "gemini-3-flash-preview"
+    gemini_light_model: str = "gemini-3.1-flash-lite-preview"
     gemini_live_model: str = "gemini-live-2.5-flash-native-audio"
     gemini_live_region: str = "us-central1"  # Live API needs a regional endpoint, not "global"
     gemini_vision_model: str = "gemini-3-flash-preview"
     # Fallback vision models tried in order when the primary hits quota/errors
-    gemini_vision_fallback_models: str = "gemini-3-flash-preview,gemini-3.1-flash-lite-preview,gemini-2.5-pro,gemini-3.1-pro-preview,gemini-2.5-flash"
+    gemini_vision_fallback_models: str = "gemini-3-flash-preview,gemini-3.1-flash-lite-preview"
 
     # Kilo Code (OpenAI-compatible gateway — can be used alongside Gemini)
     kilo_api_key: str = ""
@@ -86,7 +88,15 @@ class Settings(BaseSettings):
     use_multi_agent: bool = True
     max_agent_turns: int = 30
 
-    # Token quota (per-user lifetime allowance for free tier)
+    # Development-only starter entitlement
+    default_plan_id: str = "starter_5"
+    default_plan_name: str = "$5 Starter"
+    default_plan_price_usd: int = 5
+    default_credit_limit: int = 4_000
+    default_credit_unit_usd: float = 0.001
+    default_credit_reset_version: str = "starter_4k_reset_20260322"
+
+    # Internal token safety cap (telemetry/debug only, not the user-facing plan allowance)
     default_token_limit: int = 100_000
 
     # Google OAuth 2.0 (for Google Drive integration)

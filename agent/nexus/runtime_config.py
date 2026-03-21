@@ -55,6 +55,8 @@ class SessionRuntimeConfig:
     gemini_api_key: str
     google_project_id: str
     google_cloud_region: str
+    gemini_agent_model: str
+    gemini_light_model: str
     gemini_live_model: str
     gemini_live_region: str
     gemini_vision_model: str
@@ -72,6 +74,8 @@ class SessionRuntimeConfig:
             f"gemini_api_key='***', "
             f"google_project_id='{self.google_project_id}', "
             f"google_cloud_region='{self.google_cloud_region}', "
+            f"gemini_agent_model='{self.gemini_agent_model}', "
+            f"gemini_light_model='{self.gemini_light_model}', "
             f"gemini_live_model='{self.gemini_live_model}', "
             f"gemini_live_region='{self.gemini_live_region}', "
             f"gemini_vision_model='{self.gemini_vision_model}', "
@@ -254,6 +258,8 @@ def resolve_session_runtime_config(
         gemini_api_key=resolved_api_key,
         google_project_id=resolved_project_id,
         google_cloud_region=settings.google_cloud_region,
+        gemini_agent_model=settings.gemini_agent_model,
+        gemini_light_model=settings.gemini_light_model,
         gemini_live_model=settings.gemini_live_model,
         gemini_live_region=settings.gemini_live_region,
         gemini_vision_model=settings.gemini_vision_model,
@@ -262,7 +268,7 @@ def resolve_session_runtime_config(
             for model in settings.gemini_vision_fallback_models.split(",")
             if model.strip()
         ),
-        use_kilo=settings.use_kilo and not settings.require_byok,
+        use_kilo=False,
         kilo_api_key=settings.kilo_api_key,
         kilo_model_id=settings.kilo_model_id,
         kilo_gateway_url=settings.kilo_gateway_url,

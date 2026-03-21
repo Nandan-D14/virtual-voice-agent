@@ -15,6 +15,7 @@ from google.api_core.exceptions import AlreadyExists
 from google.cloud.firestore_v1 import FieldFilter
 
 from nexus.auth import AuthenticatedUser
+from nexus.billing import build_quota_payload, calculate_usage_credits
 from nexus.config import settings
 from nexus.firebase import get_firestore_client
 
@@ -51,6 +52,7 @@ class StoredSession:
     exact_workspace_resume_available: bool = False
     continuation_mode: str | None = None
     context_packet: dict[str, Any] | None = None
+    context_packet_inputs_digest: str | None = None
 
 
 @dataclass
@@ -219,6 +221,11 @@ class FirestoreHistoryRepository:
                 else None
             ),
             context_packet=data.get("contextPacket") if isinstance(data.get("contextPacket"), dict) else None,
+            context_packet_inputs_digest=(
+                data.get("contextPacketInputsDigest")
+                if isinstance(data.get("contextPacketInputsDigest"), str)
+                else None
+            ),
         )
 
     def _build_stored_run(self, session_id: str, run_id: str, data: dict[str, Any]) -> StoredRun:
@@ -351,6 +358,31 @@ class FirestoreHistoryRepository:
             return normalized
         return normalized[: limit - 1].rstrip() + "…"
 
+    @classmethod
+    def _normalize_tool_memories(cls, value: Any) -> list[dict[str, Any]]:
+        if not isinstance(value, list):
+            return []
+
+        normalized: list[dict[str, Any]] = []
+        for raw in value:
+            if not isinstance(raw, dict):
+                continue
+            summary = cls._clip_text(raw.get("summary"), 180)
+            if not summary:
+                continue
+            kind = raw.get("kind") if isinstance(raw.get("kind"), str) else "tool"
+            normalized.append(
+                {
+                    "kind": kind[:40],
+                    "summary": summary,
+                    "hash": raw.get("hash") if isinstance(raw.get("hash"), str) else "",
+                    "sourceStepId": raw.get("sourceStepId") if isinstance(raw.get("sourceStepId"), str) else None,
+                    "createdAt": raw.get("createdAt"),
+                    "metadata": raw.get("metadata") if isinstance(raw.get("metadata"), dict) else {},
+                }
+            )
+        return normalized[:20]
+
     def _build_handoff_summary(
         self,
         session_id: str,
@@ -449,8 +481,10 @@ class FirestoreHistoryRepository:
         steps = steps or []
         artifacts = artifacts or []
         handoff_summary = handoff_summary or {}
+        tool_memories = self._normalize_tool_memories(data.get("toolMemories"))
 
         latest_completed_steps = [step for step in steps if step.status == "completed"]
+        latest_failed_steps = [step for step in steps if step.status in {"failed", "cancelled"}]
         latest_run_summary = ""
         if latest_completed_steps:
             latest_completed = latest_completed_steps[-1]
@@ -471,10 +505,35 @@ class FirestoreHistoryRepository:
             if preview:
                 artifact_refs.append(f"{artifact.kind}: {preview}")
 
+        tool_memory = [
+            f"{item.get('kind', 'tool')}: {self._clip_text(item.get('summary'), 180)}"
+            for item in tool_memories[:6]
+            if self._clip_text(item.get("summary"), 180)
+        ]
+
+        workspace_bits: list[str] = []
+        current_status = handoff_summary.get("current_status")
+        if isinstance(current_status, str) and current_status.strip():
+            workspace_bits.append(f"Status: {current_status.strip()}")
+        resume_state = data.get("resumeState")
+        if isinstance(resume_state, str) and resume_state.strip():
+            workspace_bits.append(f"Resume: {resume_state.strip()}")
+        if latest_failed_steps:
+            failed = latest_failed_steps[-1]
+            failure_hint = self._clip_text(failed.error or failed.detail or failed.title, 180)
+            if failure_hint:
+                workspace_bits.append(f"Last issue: {failure_hint}")
+        elif latest_completed_steps:
+            completed = latest_completed_steps[-1]
+            completion_hint = self._clip_text(completed.title or completed.detail, 180)
+            if completion_hint:
+                workspace_bits.append(f"Last completed step: {completion_hint}")
+
         packet = {
+            "version": 2,
             "summary": self._clip_text(
                 handoff_summary.get("preview") or data.get("summary") or latest_run_summary,
-                320,
+                500,
             ),
             "goal": self._clip_text(
                 handoff_summary.get("goal") or "Continue the previous workspace task.",
@@ -488,9 +547,14 @@ class FirestoreHistoryRepository:
             "recentTurns": recent_turns,
             "latestRunSummary": latest_run_summary,
             "artifactRefs": artifact_refs,
+            "toolMemory": tool_memory,
+            "workspaceState": self._clip_text(" | ".join(workspace_bits), 220),
         }
         digest_source = json.dumps(packet, sort_keys=True, ensure_ascii=True)
-        packet["digest"] = hashlib.sha256(digest_source.encode("utf-8")).hexdigest()[:16]
+        digest = hashlib.sha256(digest_source.encode("utf-8")).hexdigest()[:16]
+        packet["digest"] = digest
+        packet["builtAt"] = utcnow().isoformat()
+        packet["inputsDigest"] = digest
         return packet
 
     async def upsert_user(self, user: AuthenticatedUser) -> None:
@@ -540,8 +604,8 @@ class FirestoreHistoryRepository:
         input_tokens: int,
         output_tokens: int,
         total_tokens: int,
-    ) -> None:
-        await asyncio.to_thread(
+    ) -> int:
+        return await asyncio.to_thread(
             self._append_token_usage_sync,
             session_id,
             owner_id,
@@ -550,6 +614,46 @@ class FirestoreHistoryRepository:
             input_tokens,
             output_tokens,
             total_tokens,
+        )
+
+    async def record_credit_charge(
+        self,
+        *,
+        session_id: str,
+        owner_id: str,
+        source: str,
+        model: str,
+        credits: int,
+        metadata: dict[str, Any] | None = None,
+    ) -> None:
+        await asyncio.to_thread(
+            self._record_credit_charge_sync,
+            session_id,
+            owner_id,
+            source,
+            model,
+            credits,
+            metadata,
+        )
+
+    async def record_tool_memory(
+        self,
+        *,
+        session_id: str,
+        kind: str,
+        summary: str,
+        content_hash: str,
+        source_step_id: str | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> None:
+        await asyncio.to_thread(
+            self._record_tool_memory_sync,
+            session_id,
+            kind,
+            summary,
+            content_hash,
+            source_step_id,
+            metadata,
         )
 
     async def mark_session_summary(
@@ -601,6 +705,10 @@ class FirestoreHistoryRepository:
     async def increment_user_token_usage(self, uid: str, tokens: int) -> dict[str, Any]:
         """Atomically increment user-level token usage. Returns updated quota."""
         return await asyncio.to_thread(self._increment_user_token_usage_sync, uid, tokens)
+
+    async def increment_user_credit_usage(self, uid: str, credits: int) -> dict[str, Any]:
+        """Atomically increment user-level credit usage. Returns updated quota."""
+        return await asyncio.to_thread(self._increment_user_credit_usage_sync, uid, credits)
 
     async def get_persistent_sandbox(self, owner_id: str) -> str | None:
         """Return the paused sandbox ID for the user, or None if none exists."""
@@ -853,6 +961,42 @@ class FirestoreHistoryRepository:
             template_id,
         )
 
+    @staticmethod
+    def _starter_plan_defaults(now: datetime) -> dict[str, Any]:
+        return {
+            "planId": settings.default_plan_id,
+            "planName": settings.default_plan_name,
+            "planPriceUsd": settings.default_plan_price_usd,
+            "planStatus": "active",
+            "billingMode": "internal_entitlement",
+            "creditLimit": settings.default_credit_limit,
+            "creditUsage": 0,
+            "creditUnitUsd": settings.default_credit_unit_usd,
+            "creditResetVersion": settings.default_credit_reset_version,
+            "creditResetAt": now,
+            "updatedAt": now,
+        }
+
+    def _build_starter_plan_updates(self, data: dict[str, Any], *, now: datetime) -> dict[str, Any]:
+        defaults = self._starter_plan_defaults(now)
+        if data.get("creditResetVersion") != settings.default_credit_reset_version:
+            forced_reset = dict(defaults)
+            if "migratedFromFreeTierAt" not in data:
+                forced_reset["migratedFromFreeTierAt"] = now
+            return forced_reset
+
+        updates: dict[str, Any] = {}
+        for key, value in defaults.items():
+            current = data.get(key)
+            if isinstance(value, str):
+                if not isinstance(current, str) or not current.strip():
+                    updates[key] = value
+            elif current is None:
+                updates[key] = value
+        if updates and "migratedFromFreeTierAt" not in data:
+            updates["migratedFromFreeTierAt"] = now
+        return updates
+
     def _upsert_user_sync(self, user: AuthenticatedUser) -> None:
         now = utcnow()
         ref = self._db.collection("users").document(user.uid)
@@ -870,10 +1014,19 @@ class FirestoreHistoryRepository:
                 "createdAt": now,
                 "tokenUsage": 0,
                 "tokenLimit": settings.default_token_limit,
+                **self._starter_plan_defaults(now),
             })
         except AlreadyExists:
             # Document already exists; update mutable fields only.
-            ref.set(base_payload, merge=True)
+            existing = ref.get()
+            data = existing.to_dict() or {}
+            ref.set(
+                {
+                    **base_payload,
+                    **self._build_starter_plan_updates(data, now=now),
+                },
+                merge=True,
+            )
 
     def _upsert_session_sync(
         self,
@@ -1473,9 +1626,17 @@ class FirestoreHistoryRepository:
         input_tokens: int,
         output_tokens: int,
         total_tokens: int,
-    ) -> None:
+    ) -> int:
         if input_tokens < 0 or output_tokens < 0 or total_tokens < 0:
-            return
+            return 0
+
+        credits_charged = calculate_usage_credits(
+            source=source,
+            model=model,
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            total_tokens=total_tokens,
+        )
 
         session_ref = self._db.collection("sessions").document(session_id)
         transaction = self._db.transaction()
@@ -1504,31 +1665,180 @@ class FirestoreHistoryRepository:
             totals["total"] += total_tokens
             totals["bySource"][source] = source_totals
 
+            credit_totals = data.get("creditTotals") if isinstance(data.get("creditTotals"), dict) else {}
+            credit_by_source = (
+                credit_totals.get("bySource")
+                if isinstance(credit_totals.get("bySource"), dict)
+                else {}
+            )
+            credit_total = int(credit_totals.get("total", 0) or 0)
+            if credits_charged > 0:
+                credit_total += credits_charged
+                credit_by_source[source] = int(credit_by_source.get(source, 0) or 0) + credits_charged
+
             usage_ref = session_ref.collection("usage_events").document(
                 f"{now.strftime('%Y%m%d%H%M%S%f')}-{uuid.uuid4().hex[:8]}"
             )
-            txn.set(
-                usage_ref,
-                {
-                    "ownerId": owner_id,
-                    "sessionId": session_id,
-                    "source": source,
-                    "model": model,
-                    "inputTokens": input_tokens,
-                    "outputTokens": output_tokens,
-                    "totalTokens": total_tokens,
-                    "createdAt": now,
-                },
-            )
+            usage_payload: dict[str, Any] = {
+                "ownerId": owner_id,
+                "sessionId": session_id,
+                "source": source,
+                "model": model,
+                "inputTokens": input_tokens,
+                "outputTokens": output_tokens,
+                "totalTokens": total_tokens,
+                "createdAt": now,
+            }
+            if credits_charged > 0:
+                usage_payload.update(
+                    {
+                        "creditsCharged": credits_charged,
+                        "creditUnit": "credits",
+                    }
+                )
+            txn.set(usage_ref, usage_payload)
             updates: dict[str, Any] = {
                 "tokenTotals": totals,
                 "updatedAt": now,
             }
+            if credits_charged > 0:
+                updates["creditTotals"] = {
+                    "total": credit_total,
+                    "bySource": credit_by_source,
+                }
             if data.get("tokenTrackingStartedAt") is None:
                 updates["tokenTrackingStartedAt"] = now
             txn.set(session_ref, updates, merge=True)
 
         transactional_append(transaction)
+        return credits_charged
+
+    def _record_credit_charge_sync(
+        self,
+        session_id: str,
+        owner_id: str,
+        source: str,
+        model: str,
+        credits: int,
+        metadata: dict[str, Any] | None,
+    ) -> None:
+        if credits <= 0:
+            return
+
+        session_ref = self._db.collection("sessions").document(session_id)
+        transaction = self._db.transaction()
+
+        @firestore.transactional
+        def transactional_record(txn):
+            snapshot = session_ref.get(transaction=txn)
+            if not snapshot.exists:
+                raise ValueError(f"Session {session_id} does not exist")
+
+            now = utcnow()
+            data = snapshot.to_dict() or {}
+            credit_totals = data.get("creditTotals") if isinstance(data.get("creditTotals"), dict) else {}
+            credit_by_source = (
+                credit_totals.get("bySource")
+                if isinstance(credit_totals.get("bySource"), dict)
+                else {}
+            )
+            credit_by_source[source] = int(credit_by_source.get(source, 0) or 0) + credits
+            total = int(credit_totals.get("total", 0) or 0) + credits
+
+            event_ref = session_ref.collection("credit_events").document(
+                f"{now.strftime('%Y%m%d%H%M%S%f')}-{uuid.uuid4().hex[:8]}"
+            )
+            txn.set(
+                event_ref,
+                {
+                    "ownerId": owner_id,
+                    "sessionId": session_id,
+                    "source": source,
+                    "model": model,
+                    "credits": credits,
+                    "unit": "credits",
+                    "metadata": metadata or {},
+                    "createdAt": now,
+                },
+            )
+            txn.set(
+                session_ref,
+                {
+                    "creditTotals": {
+                        "total": total,
+                        "bySource": credit_by_source,
+                    },
+                    "updatedAt": now,
+                },
+                merge=True,
+            )
+
+        transactional_record(transaction)
+
+    def _record_tool_memory_sync(
+        self,
+        session_id: str,
+        kind: str,
+        summary: str,
+        content_hash: str,
+        source_step_id: str | None,
+        metadata: dict[str, Any] | None,
+    ) -> None:
+        clean_summary = self._clip_text(summary, 700)
+        if not clean_summary:
+            return
+
+        session_ref = self._db.collection("sessions").document(session_id)
+        snapshot = session_ref.get()
+        if not snapshot.exists:
+            return
+
+        data = snapshot.to_dict() or {}
+        existing = self._normalize_tool_memories(data.get("toolMemories"))
+        dedupe_key = content_hash.strip()
+        next_entries: list[dict[str, Any]] = []
+
+        if dedupe_key:
+            for item in existing:
+                if item.get("hash") == dedupe_key and item.get("kind") == kind:
+                    item = {
+                        **item,
+                        "summary": clean_summary,
+                        "sourceStepId": source_step_id or item.get("sourceStepId"),
+                        "metadata": metadata or item.get("metadata") or {},
+                        "createdAt": utcnow(),
+                    }
+                    next_entries.append(item)
+                else:
+                    next_entries.append(item)
+            if next_entries != existing:
+                session_ref.set(
+                    {
+                        "toolMemories": next_entries[:20],
+                        "updatedAt": utcnow(),
+                    },
+                    merge=True,
+                )
+                return
+
+        next_entries = [
+            {
+                "kind": kind[:40],
+                "summary": clean_summary,
+                "hash": dedupe_key,
+                "sourceStepId": source_step_id,
+                "metadata": metadata or {},
+                "createdAt": utcnow(),
+            }
+        ]
+        next_entries.extend(existing)
+        session_ref.set(
+            {
+                "toolMemories": next_entries[:20],
+                "updatedAt": utcnow(),
+            },
+            merge=True,
+        )
 
     def _mark_session_summary_sync(
         self,
@@ -1822,21 +2132,16 @@ class FirestoreHistoryRepository:
             ref.set(nested_updates, merge=True)
 
     def _get_user_quota_sync(self, uid: str) -> dict[str, Any]:
-        doc = self._db.collection("users").document(uid).get()
+        ref = self._db.collection("users").document(uid)
+        doc = ref.get()
         if not doc.exists:
-            return {
-                "limit": settings.default_token_limit,
-                "used": 0,
-                "remaining": settings.default_token_limit,
-            }
+            return build_quota_payload(None)
         data = doc.to_dict() or {}
-        limit = int(data.get("tokenLimit", settings.default_token_limit) or settings.default_token_limit)
-        used = int(data.get("tokenUsage", 0) or 0)
-        return {
-            "limit": limit,
-            "used": used,
-            "remaining": max(0, limit - used),
-        }
+        updates = self._build_starter_plan_updates(data, now=utcnow())
+        if updates:
+            ref.set(updates, merge=True)
+            data = {**data, **updates}
+        return build_quota_payload(data)
 
     def _increment_user_token_usage_sync(self, uid: str, tokens: int) -> dict[str, Any]:
         if tokens <= 0:
@@ -1844,6 +2149,19 @@ class FirestoreHistoryRepository:
 
         ref = self._db.collection("users").document(uid)
         ref.update({"tokenUsage": firestore.Increment(tokens)})
+        return self._get_user_quota_sync(uid)
+
+    def _increment_user_credit_usage_sync(self, uid: str, credits: int) -> dict[str, Any]:
+        if credits <= 0:
+            return self._get_user_quota_sync(uid)
+
+        ref = self._db.collection("users").document(uid)
+        doc = ref.get()
+        data = doc.to_dict() if doc.exists else {}
+        updates = self._build_starter_plan_updates(data or {}, now=utcnow())
+        if updates:
+            ref.set(updates, merge=True)
+        ref.update({"creditUsage": firestore.Increment(int(credits))})
         return self._get_user_quota_sync(uid)
 
     def _get_persistent_sandbox_sync(self, owner_id: str) -> str | None:
@@ -1967,10 +2285,23 @@ class FirestoreHistoryRepository:
             steps=steps,
             artifacts=artifacts,
         )
+        existing_packet = data.get("contextPacket") if isinstance(data.get("contextPacket"), dict) else None
+        existing_inputs_digest = (
+            data.get("contextPacketInputsDigest")
+            if isinstance(data.get("contextPacketInputsDigest"), str)
+            else None
+        )
+        if (
+            existing_packet
+            and existing_inputs_digest
+            and existing_inputs_digest == context_packet.get("inputsDigest")
+        ):
+            context_packet = existing_packet
         session_ref.set(
             {
                 "handoffSummary": handoff_summary,
                 "contextPacket": context_packet,
+                "contextPacketInputsDigest": context_packet.get("inputsDigest", ""),
                 "hasArtifacts": bool(artifacts),
                 "artifactCount": len(artifacts) if artifacts else int(data.get("artifactCount", 0) or 0),
                 "canContinueWorkspace": current_can_continue,

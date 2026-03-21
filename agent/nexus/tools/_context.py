@@ -24,6 +24,7 @@ _current_bg_task_manager: contextvars.ContextVar[Optional["BackgroundTaskManager
 _current_runtime_config: contextvars.ContextVar["SessionRuntimeConfig"] = (
     contextvars.ContextVar("_current_runtime_config")
 )
+_current_session_id: contextvars.ContextVar[str] = contextvars.ContextVar("_current_session_id")
 
 
 def set_sandbox(sandbox: "SandboxManager") -> contextvars.Token:
@@ -62,3 +63,16 @@ def get_runtime_config() -> "SessionRuntimeConfig":
         raise RuntimeError(
             "No runtime config in current context. Was set_runtime_config() called?"
         )
+
+
+def set_session_id(session_id: str) -> contextvars.Token:
+    """Set the session ID for the current execution context."""
+    return _current_session_id.set(session_id)
+
+
+def get_session_id() -> str:
+    """Retrieve the session ID for the current execution context."""
+    try:
+        return _current_session_id.get()
+    except LookupError:
+        raise RuntimeError("No session ID in current context. Was set_session_id() called?")

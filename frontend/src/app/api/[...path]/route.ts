@@ -2,6 +2,9 @@ import { NextRequest, NextResponse } from "next/server";
 
 const AGENT_URL = process.env.AGENT_URL || "http://localhost:8000";
 
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
 async function handler(
   request: NextRequest,
   { params }: { params: Promise<{ path: string[] }> }
@@ -17,6 +20,7 @@ async function handler(
   const init: RequestInit & { duplex?: string } = {
     method: request.method,
     headers,
+    cache: "no-store",
   };
 
   if (request.method !== "GET" && request.method !== "HEAD") {
@@ -33,7 +37,12 @@ async function handler(
     return new NextResponse(backendRes.body, {
       status: backendRes.status,
       statusText: backendRes.statusText,
-      headers: responseHeaders,
+      headers: new Headers({
+        ...Object.fromEntries(responseHeaders.entries()),
+        "Cache-Control": "no-store, no-cache, must-revalidate, proxy-revalidate",
+        Pragma: "no-cache",
+        Expires: "0",
+      }),
     });
   } catch (err) {
     return NextResponse.json(

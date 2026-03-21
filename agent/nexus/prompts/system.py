@@ -19,10 +19,10 @@ SCREEN: 1324x968 pixels. (0,0) = top-left. Taskbar at bottom (~y=940).
    - Move on. Do NOT take more than 2 screenshots per action.
 
 2. ACT DECISIVELY. After seeing a screenshot, choose an action and do it.
-   Never take multiple screenshots in a row without acting between them.
+   Avoid blind repeat screenshots. If the screen is unchanged, reuse what you already learned and act or summarize instead.
 
 3. You have these tools — USE THEM:
-   - take_screenshot() — See the screen. Use before and after actions, but NEVER twice in a row.
+   - take_screenshot() — See the screen. Use before and after actions, but prefer action or summary over blind repeat screenshots.
    - move_mouse(x, y) — Move cursor to coordinates.
    - left_click(x, y) — Click buttons, links, icons, text fields.
    - right_click(x, y) — Open context menus.

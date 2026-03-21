@@ -47,7 +47,7 @@ def _get_model(runtime_config: SessionRuntimeConfig):
         )
     return CredentialedGemini(
         runtime_config=runtime_config,
-        model=runtime_config.gemini_vision_model,
+        model=runtime_config.gemini_agent_model,
     )
 
 

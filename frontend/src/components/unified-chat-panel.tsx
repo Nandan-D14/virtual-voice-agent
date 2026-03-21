@@ -351,6 +351,11 @@ function getEventGroupTitle(
     return truncateText(task["message"], 64);
   }
 
+  const contextPacket = items.find((item) => item.type === "context_packet");
+  if (contextPacket) {
+    return "Updated compact context";
+  }
+
   return "Agent activity";
 }
 
@@ -542,6 +547,29 @@ function EventRow({
           content={String(item["message"] || "")}
         />
       );
+    case "context_packet":
+      return (
+        <TimelineRow
+          isLast={isLast}
+          dotClass="bg-cyan-400"
+          time={time}
+          label="Context"
+          labelClass="text-cyan-300"
+          content={
+            <div className="space-y-2">
+              <div className="text-xs text-zinc-300">
+                {`Stage: ${String(item["stage"] || "updated").replace(/_/g, " ")}`}
+              </div>
+              <div className="text-xs text-zinc-400">
+                {`Compaction: ${String(item["action"] || "full").replace(/_/g, " ")}`}
+              </div>
+              <div className="font-mono text-[11px] text-cyan-200">
+                {String(item["reasoning_model"] || "")}
+              </div>
+            </div>
+          }
+        />
+      );
     case "error":
       return (
         <TimelineRow
@@ -668,6 +696,30 @@ function EventRenderer({
           ts={item.ts}
           success={item["success"] as boolean}
           result={item["result"] as string}
+        />
+      );
+    case "budget_warning":
+      return (
+        <ErrorBadge
+          ts={item.ts}
+          message={item["message"] as string}
+          code={`budget:${String(item["state"] || "warning")}`}
+        />
+      );
+    case "resume_recovery":
+      return (
+        <VoiceStatusBadge
+          ts={item.ts}
+          status={String(item["state"] || "recovery")}
+          message={String(item["message"] || "")}
+        />
+      );
+    case "context_packet":
+      return (
+        <ToolResultPill
+          ts={item.ts}
+          tool="context_packet"
+          output={`stage=${String(item["stage"] || "updated")} action=${String(item["action"] || "full")} model=${String(item["reasoning_model"] || "")}`}
         />
       );
     case "error":

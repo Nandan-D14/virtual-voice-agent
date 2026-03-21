@@ -17,21 +17,28 @@ import {
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { authenticatedFetch } from "@/lib/api-client";
+import { DEFAULT_PLAN_QUOTA, type PlanQuota } from "@/lib/message-types";
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const { user, signOutUser, isLoading: isAuthLoading } = useAuth();
   const router = useRouter();
   const pathname = usePathname();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-  const [quota, setQuota] = useState<{ limit: number; used: number; remaining: number } | null>(null);
+  const [quota, setQuota] = useState<PlanQuota | null>(null);
 
   useEffect(() => {
     if (!user) return;
     authenticatedFetch("/api/v1/user/quota")
       .then(async (res) => {
-        if (res.ok) setQuota(await res.json());
+        if (res.ok) {
+          setQuota((await res.json()) as PlanQuota);
+          return;
+        }
+        setQuota(DEFAULT_PLAN_QUOTA);
       })
-      .catch(() => {});
+      .catch(() => {
+        setQuota(DEFAULT_PLAN_QUOTA);
+      });
   }, [user]);
 
   const navigation = [
@@ -128,12 +135,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           <NavLinks />
         </nav>
 
-        {/* Token Quota */}
+        {/* Starter Plan */}
         {quota && (
           <div className="px-4 pb-2">
             <div className="rounded-xl bg-background dark:bg-white/5 border border-card-border dark:border-white/10 px-3 py-2.5">
               <div className="flex items-center justify-between text-[10px] font-semibold uppercase tracking-[0.15em] text-muted dark:text-zinc-500 mb-1.5">
-                <span>Free Tier</span>
+                <span>$5 Starter</span>
                 <span className={`${
                   quota.remaining <= 0
                     ? "text-red-500"
@@ -157,7 +164,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 />
               </div>
               <p className="text-[10px] text-muted dark:text-zinc-500 mt-1">
-                {new Intl.NumberFormat("en-US", { notation: "compact", maximumFractionDigits: 1 }).format(quota.used)} / {new Intl.NumberFormat("en-US", { notation: "compact", maximumFractionDigits: 1 }).format(quota.limit)} tokens
+                <span className="block font-semibold text-zinc-700 dark:text-zinc-300">
+                  {quota.plan_name || "$5 Starter"}
+                </span>
+                {new Intl.NumberFormat("en-US", { notation: "compact", maximumFractionDigits: 1 }).format(quota.used)} / {new Intl.NumberFormat("en-US", { notation: "compact", maximumFractionDigits: 1 }).format(quota.limit)} {quota.unit || "credits"}
               </p>
             </div>
           </div>
