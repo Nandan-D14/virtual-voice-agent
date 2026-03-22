@@ -187,7 +187,7 @@ export default function BetaAccessPage() {
             <LockKeyhole className="h-3.5 w-3.5" />
             {statusBadge}
           </div>
-          <h1 className="mt-5 text-4xl font-semibold tracking-tight">Nexus internal beta access</h1>
+          <h1 className="mt-5 text-4xl font-semibold tracking-tight">CoComputer internal beta access</h1>
           <p className="mt-4 max-w-2xl text-sm leading-6 text-zinc-400">
             Register first, get approved manually, redeem your beta access code, then finish API and keys setup before running sessions. Firestore is the source of truth and your beta intake is mirrored into Google Sheets for review.
           </p>

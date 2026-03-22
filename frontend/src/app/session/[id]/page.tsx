@@ -134,7 +134,7 @@ function buildSessionTemplateDraft(
     "";
 
   const lines = [
-    "Use this saved Nexus workflow as the execution pattern for the new task.",
+    "Use this saved CoComputer workflow as the execution pattern for the new task.",
   ];
 
   const goal =
@@ -1257,7 +1257,7 @@ export default function SessionPage() {
             <div className="max-w-3xl w-full flex flex-col items-center gap-8 mb-20 mt-10">
               <div className="text-center space-y-4">
                 <h1 className="text-3xl font-medium tracking-tight text-zinc-900 dark:text-zinc-100">
-                  Welcome to Nexus
+                  Welcome to CoComputer
                 </h1>
                 <p className="text-[15px] text-zinc-500">What can I help you with?</p>
               </div>
@@ -1277,7 +1277,7 @@ export default function SessionPage() {
                           handleTextSubmit();
                         }
                       }}
-                      placeholder="Send message to Nexus..."
+                      placeholder="Send message to CoComputer..."
                       rows={1}
                       className="w-full bg-transparent border-none outline-none text-[15px] text-zinc-900 dark:text-zinc-100 placeholder:text-zinc-500 resize-none overflow-y-auto max-h-50 focus:ring-0 leading-relaxed"
                     />
@@ -1354,7 +1354,7 @@ export default function SessionPage() {
             <header className="relative flex items-center justify-between px-5 py-3">
               <div className="flex items-center gap-4">
                 <h1 className="text-base font-semibold tracking-tight text-zinc-900 dark:text-zinc-100">
-                  Nexus
+                  CoComputer
                 </h1>
 
                 {viewMode === "live" && isConnected && (
@@ -1596,7 +1596,7 @@ export default function SessionPage() {
                             value={textInput}
                             onChange={(e) => setTextInput(e.target.value)}
                             onKeyDown={(e) => e.key === "Enter" && handleTextSubmit()}
-                            placeholder="Send message to Nexus..."
+                            placeholder="Send message to CoComputer..."
                             className="w-full bg-transparent border-none px-2 py-2.5 text-[15px] text-foreground dark:text-zinc-100 placeholder:text-zinc-500 focus:outline-none focus:ring-0"
                           />
                         </div>

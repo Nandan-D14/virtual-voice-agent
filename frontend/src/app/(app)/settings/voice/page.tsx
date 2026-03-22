@@ -48,7 +48,7 @@ export default function VoiceSettingsPage() {
     <div className="space-y-8 max-w-2xl text-zinc-900 dark:text-zinc-100">
       <div>
         <h2 className="text-xl font-semibold tracking-tight text-zinc-900 dark:text-zinc-100 mb-2">Voice & Audio</h2>
-        <p className="text-sm text-zinc-500">Configure how Nexus sounds and processes your speech.</p>
+        <p className="text-sm text-zinc-500">Configure how CoComputer sounds and processes your speech.</p>
       </div>
 
       <div className="space-y-6">

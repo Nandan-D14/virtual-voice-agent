@@ -40,14 +40,14 @@ export function buildWorkflowTemplateDraft(
     handoff?.preview ||
     source.summary ||
     packet?.summary ||
-    "Reusable workflow saved from a prior Nexus session.";
+    "Reusable workflow saved from a prior CoComputer session.";
   const goal = handoff?.goal || packet?.goal || "";
   const completed = handoff?.completed_work ?? [];
   const openTasks = handoff?.open_tasks ?? packet?.open_tasks ?? [];
   const artifactTitles = (source.artifactTitles ?? []).filter(Boolean).slice(0, 4);
 
   const lines = [
-    "Use this saved Nexus workflow as the execution pattern for the new task.",
+    "Use this saved CoComputer workflow as the execution pattern for the new task.",
   ];
   if (goal) {
     lines.push(`Original goal: ${goal}`);

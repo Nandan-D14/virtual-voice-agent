@@ -133,6 +133,55 @@ Rules:
 
 You should solve as much as possible from the terminal before asking for vision."""
 
+DEEPRESEARCHER_PROMPT = """You are DeepResearcher, a coordinating research agent in the CoComputer system.
+You do not gather evidence yourself with shell, browser, or screenshot tools. You coordinate specialist workers and synthesize the results.
+
+Use this agent for:
+- explicit multi-source investigation, comparison, and synthesis
+- report-style tasks that combine local evidence with web research
+- long exploratory workflows that need coordinated evidence gathering
+
+Workflow:
+1. Break the task into concrete sub-questions.
+2. Delegate local repo, log, file, config, and CLI evidence-gathering to research_code_agent.
+3. Delegate web and source gathering to research_browser_agent.
+4. Delegate GUI-only verification to research_computer_agent only when visible state is required.
+5. Synthesize the returned findings into a concise final answer with evidence and recommendations.
+6. If the research is clearly long-running or multi-phase, use request_background_task() before continuing.
+
+Rules:
+- You are a coordinator only. Do not attempt to do shell, browser, or screenshot work yourself.
+- Prefer research_code_agent and research_browser_agent before any visual verification.
+- Use research_computer_agent only when another worker cannot proceed without GUI state.
+- Keep delegation explicit and scoped. Ask each worker for evidence, not speculation.
+- Summarize findings instead of dumping raw output.
+
+Tool:
+- request_background_task(description, estimated_seconds) for long-running research
+
+You are responsible for the research plan, delegation, synthesis, and final recommendation."""
+
+RESEARCH_COMPUTER_AGENT_PROMPT = f"""{COMPUTER_AGENT_PROMPT}
+
+Research context:
+- You are research_computer_agent working under deepresearcher.
+- Use GUI actions only to verify visible state that other research workers cannot confirm.
+- Return concise visual findings back to deepresearcher."""
+
+RESEARCH_BROWSER_AGENT_PROMPT = f"""{BROWSER_AGENT_PROMPT}
+
+Research context:
+- You are research_browser_agent working under deepresearcher.
+- Focus on source gathering, comparison, and verifying web claims for the assigned sub-question.
+- Return concise findings and relevant evidence back to deepresearcher."""
+
+RESEARCH_CODE_AGENT_PROMPT = f"""{CODE_AGENT_PROMPT}
+
+Research context:
+- You are research_code_agent working under deepresearcher.
+- Focus on local evidence-gathering for the assigned sub-question.
+- Return concise findings from commands, files, logs, and repo state back to deepresearcher."""
+
 
 # ---------------------------------------------------------------------------
 # Sub-agent factories
@@ -153,12 +202,16 @@ def _get_model(runtime_config: SessionRuntimeConfig):
     )
 
 
-def create_computer_agent(runtime_config: SessionRuntimeConfig) -> Agent:
-    """Create the Computer Agent for GUI interactions."""
+def _create_computer_agent(
+    runtime_config: SessionRuntimeConfig,
+    *,
+    name: str,
+    instruction: str,
+) -> Agent:
     return Agent(
-        name="computer_agent",
+        name=name,
         model=_get_model(runtime_config),
-        instruction=COMPUTER_AGENT_PROMPT,
+        instruction=instruction,
         tools=[
             take_screenshot,
             move_mouse,
@@ -173,12 +226,16 @@ def create_computer_agent(runtime_config: SessionRuntimeConfig) -> Agent:
     )
 
 
-def create_browser_agent(runtime_config: SessionRuntimeConfig) -> Agent:
-    """Create the Browser Agent for web browsing and research."""
+def _create_browser_agent(
+    runtime_config: SessionRuntimeConfig,
+    *,
+    name: str,
+    instruction: str,
+) -> Agent:
     return Agent(
-        name="browser_agent",
+        name=name,
         model=_get_model(runtime_config),
-        instruction=BROWSER_AGENT_PROMPT,
+        instruction=instruction,
         tools=[
             open_browser,
             take_screenshot,
@@ -191,16 +248,81 @@ def create_browser_agent(runtime_config: SessionRuntimeConfig) -> Agent:
     )
 
 
-def create_code_agent(runtime_config: SessionRuntimeConfig) -> Agent:
-    """Create the Code Agent for terminal commands and code execution."""
+def _create_code_agent(
+    runtime_config: SessionRuntimeConfig,
+    *,
+    name: str,
+    instruction: str,
+) -> Agent:
     return Agent(
-        name="code_agent",
+        name=name,
         model=_get_model(runtime_config),
-        instruction=CODE_AGENT_PROMPT,
+        instruction=instruction,
         tools=[
             run_command,
             take_screenshot,
             type_text,
             press_key,
         ],
+    )
+
+
+def create_computer_agent(runtime_config: SessionRuntimeConfig) -> Agent:
+    """Create the Computer Agent for GUI interactions."""
+    return _create_computer_agent(
+        runtime_config,
+        name="computer_agent",
+        instruction=COMPUTER_AGENT_PROMPT,
+    )
+
+
+def create_browser_agent(runtime_config: SessionRuntimeConfig) -> Agent:
+    """Create the Browser Agent for web browsing and research."""
+    return _create_browser_agent(
+        runtime_config,
+        name="browser_agent",
+        instruction=BROWSER_AGENT_PROMPT,
+    )
+
+
+def create_code_agent(runtime_config: SessionRuntimeConfig) -> Agent:
+    """Create the Code Agent for terminal commands and code execution."""
+    return _create_code_agent(
+        runtime_config,
+        name="code_agent",
+        instruction=CODE_AGENT_PROMPT,
+    )
+
+
+def create_deepresearcher_agent(
+    runtime_config: SessionRuntimeConfig,
+    extra_tools: list | None = None,
+) -> Agent:
+    """Create the DeepResearcher coordinator with research-specific workers."""
+    tools: list = []
+    if extra_tools:
+        tools.extend(extra_tools)
+
+    research_computer = _create_computer_agent(
+        runtime_config,
+        name="research_computer_agent",
+        instruction=RESEARCH_COMPUTER_AGENT_PROMPT,
+    )
+    research_browser = _create_browser_agent(
+        runtime_config,
+        name="research_browser_agent",
+        instruction=RESEARCH_BROWSER_AGENT_PROMPT,
+    )
+    research_code = _create_code_agent(
+        runtime_config,
+        name="research_code_agent",
+        instruction=RESEARCH_CODE_AGENT_PROMPT,
+    )
+
+    return Agent(
+        name="deepresearcher",
+        model=_get_model(runtime_config),
+        instruction=DEEPRESEARCHER_PROMPT,
+        tools=tools,
+        sub_agents=[research_computer, research_browser, research_code],
     )

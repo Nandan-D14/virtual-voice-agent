@@ -139,7 +139,7 @@ export default function ProfileSettingsPage() {
           </div>
           
           <p className="text-sm text-zinc-500 mb-6">
-            Connect your Google Drive to allow Nexus to read documents, create spreadsheets, and continuously auto-export session transcripts.
+            Connect your Google Drive to allow CoComputer to read documents, create spreadsheets, and continuously auto-export session transcripts.
           </p>
 
           {!driveConnected ? (
@@ -156,7 +156,7 @@ export default function ProfileSettingsPage() {
                 <div className="flex items-center justify-between">
                   <div>
                     <h4 className="text-sm font-medium text-zinc-900 dark:text-zinc-100">Storage Authorized</h4>
-                    <p className="text-xs text-zinc-500 mt-1">Nexus has secure, sandboxed access to manage files.</p>
+                    <p className="text-xs text-zinc-500 mt-1">CoComputer has secure, sandboxed access to manage files.</p>
                   </div>
                   <button
                     onClick={handleDisconnectDrive}

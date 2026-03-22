@@ -67,7 +67,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       {/* Mobile Header */}
       <div className="md:hidden fixed top-0 left-0 right-0 h-14 bg-white/80 dark:bg-[#09090b]/80 backdrop-blur-xl border-b border-zinc-200 dark:border-[#1c1c1e] z-50 flex items-center justify-between px-4">
         <Link href="/" className="flex items-center gap-2">
-          <span className="font-semibold tracking-tight text-lg text-zinc-900 dark:text-zinc-100">Nexus</span>
+          <span className="font-semibold tracking-tight text-lg text-zinc-900 dark:text-zinc-100">CoComputer</span>
         </Link>
         <button
           onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
@@ -86,7 +86,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         <div className="p-4 md:p-6 pb-2">
           <Link href="/" className="flex items-center gap-3 px-2 group">
             <span className="text-xl font-semibold tracking-tight text-zinc-900 dark:text-zinc-100">
-              Nexus
+              CoComputer
             </span>
           </Link>
         </div>

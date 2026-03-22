@@ -108,9 +108,9 @@ export function SessionNavSidebar() {
       >
       <div className="p-4 md:p-6 pb-2">
         <div className="flex items-center justify-between">
-          <Link href="/" className="flex items-center gap-3 px-2 group" title="NEXUS — New Session">
+          <Link href="/" className="flex items-center gap-3 px-2 group" title="CoComputer — New Session">
             <span className="text-xl font-semibold tracking-tight text-zinc-900 dark:text-zinc-100">
-              Nexus
+              CoComputer
             </span>
           </Link>
           <button

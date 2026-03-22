@@ -1,4 +1,4 @@
-"""ADK agent definition — the NEXUS brain.
+"""ADK agent definition — the CoComputer brain.
 
 Supports two modes:
   1. Single agent (default fallback) — one agent with all tools.
@@ -64,7 +64,7 @@ def create_agent(
     runtime_config: SessionRuntimeConfig,
     task_model_override: str | None = None,
 ) -> Agent:
-    """Create the single NEXUS ADK agent with all desktop control tools."""
+    """Create the single CoComputer ADK agent with all desktop control tools."""
     effective_runtime_config = _runtime_for_task_model(runtime_config, task_model_override)
     agent = Agent(
         name="nexus",
@@ -85,12 +85,14 @@ def create_multi_agent(
       - computer_agent (GUI interactions)
       - browser_agent (web browsing)
       - code_agent (terminal & code)
+      - deepresearcher (coordinated research workflows)
     """
     effective_runtime_config = _runtime_for_task_model(runtime_config, task_model_override)
     from nexus.agents import (
         create_browser_agent,
         create_code_agent,
         create_computer_agent,
+        create_deepresearcher_agent,
         create_orchestrator_agent,
     )
     from nexus.tools.bg_task import request_background_task
@@ -98,15 +100,22 @@ def create_multi_agent(
     computer = create_computer_agent(effective_runtime_config)
     browser = create_browser_agent(effective_runtime_config)
     code = create_code_agent(effective_runtime_config)
+    deepresearcher = create_deepresearcher_agent(
+        effective_runtime_config,
+        extra_tools=[request_background_task],
+    )
 
     orchestrator = create_orchestrator_agent(
         runtime_config=effective_runtime_config,
         computer_agent=computer,
         browser_agent=browser,
         code_agent=code,
+        deepresearcher_agent=deepresearcher,
         extra_tools=[request_background_task],
     )
-    logger.info("Multi-agent orchestrator created with sub-agents: computer, browser, code")
+    logger.info(
+        "Multi-agent orchestrator created with sub-agents: computer, browser, code, deepresearcher"
+    )
     return orchestrator
 
 

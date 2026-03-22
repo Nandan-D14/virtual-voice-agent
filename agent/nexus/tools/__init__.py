@@ -1,4 +1,4 @@
-"""NEXUS agent tools — computer control primitives for ADK."""
+"""CoComputer agent tools — computer control primitives for ADK."""
 
 from nexus.tools.computer import (
     move_mouse,

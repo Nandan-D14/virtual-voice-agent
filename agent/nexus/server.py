@@ -1,4 +1,4 @@
-"""FastAPI application — REST + WebSocket endpoints for NEXUS."""
+"""FastAPI application — REST + WebSocket endpoints for CoComputer."""
 
 from __future__ import annotations
 
@@ -343,10 +343,10 @@ def _build_template_defaults(stored_session, run, steps, artifacts) -> dict[str,
         )
 
     name = (stored_session.title or "").strip() or handoff.get("headline") or "Workflow template"
-    description = summary or goal or "Reusable workflow saved from a prior Nexus session."
+    description = summary or goal or "Reusable workflow saved from a prior CoComputer session."
 
     instruction_lines = [
-        "Use this saved Nexus workflow as the execution pattern for the new task.",
+        "Use this saved CoComputer workflow as the execution pattern for the new task.",
     ]
     if goal:
         instruction_lines.append(f"Original goal: {goal}")
@@ -725,16 +725,16 @@ async def lifespan(app: FastAPI):
     """Startup / shutdown lifecycle."""
     apply_runtime_env_overrides()
     validate_startup_settings()
-    logger.info("NEXUS agent service starting...")
+    logger.info("CoComputer agent service starting...")
     session_manager.start_cleanup()
     yield
-    logger.info("NEXUS agent service shutting down...")
+    logger.info("CoComputer agent service shutting down...")
     session_manager.stop_cleanup()
     await session_manager.destroy_all()
 
 
 app = FastAPI(
-    title="NEXUS Agent Service",
+    title="CoComputer Agent Service",
     version="0.1.0",
     lifespan=lifespan,
 )
@@ -941,7 +941,7 @@ async def create_session(
     payload: SessionCreateRequest | None = Body(default=None),
     user: AuthenticatedUser = Depends(require_current_user),
 ):
-    """Create a new NEXUS session using an explicit workspace mode."""
+    """Create a new CoComputer session using an explicit workspace mode."""
     if not session_create_limiter.is_allowed(user.uid):
         raise HTTPException(status_code=429, detail="Too many session requests. Please wait and try again.")
     return await _create_session_for_user(user, payload or SessionCreateRequest())

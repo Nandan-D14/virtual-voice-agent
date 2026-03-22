@@ -60,7 +60,7 @@ async def _maybe_mount_gdrive(
 
 @dataclass
 class Session:
-    """A single NEXUS session with its own sandbox and agent state."""
+    """A single CoComputer session with its own sandbox and agent state."""
 
     id: str
     owner_id: str
@@ -93,7 +93,7 @@ class Session:
 
 
 class SessionManager:
-    """Creates, tracks, and cleans up NEXUS sessions."""
+    """Creates, tracks, and cleans up CoComputer sessions."""
 
     def __init__(self, history_repository: Optional["FirestoreHistoryRepository"] = None) -> None:
         self._sessions: dict[str, Session] = {}

@@ -303,7 +303,7 @@ function MessageBubble({
         </div>
         <div className="flex items-center gap-2">
           <span className="text-[15px] font-medium text-zinc-800 dark:text-zinc-200">
-            Nexus
+            CoComputer
           </span>
           <span className="rounded-md border border-zinc-200 dark:border-zinc-700 bg-zinc-100 dark:bg-zinc-800/80 px-1.5 py-0.5 text-[10px] font-medium text-zinc-500">
             Lite
@@ -1179,7 +1179,7 @@ function ThinkingIndicator() {
           />
         </svg>
         <span className="text-[14px] font-medium">
-          Nexus will continue working after your reply
+          CoComputer will continue working after your reply
         </span>
       </div>
     </div>

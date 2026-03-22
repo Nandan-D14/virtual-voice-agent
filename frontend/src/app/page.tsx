@@ -105,7 +105,7 @@ export default function HomePage() {
               <div className="w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center text-white font-bold transform group-hover:scale-105 transition-transform shadow-lg shadow-blue-500/20">
                 <Terminal className="w-4 h-4" />
               </div>
-              <span className="font-semibold text-lg tracking-tight">Nexus</span>
+              <span className="font-semibold text-lg tracking-tight">CoComputer</span>
             </Link>
             
             <div className="hidden md:flex items-center gap-6 text-sm font-medium text-zinc-500 dark:text-zinc-400">
@@ -184,7 +184,7 @@ export default function HomePage() {
             transition={{ duration: 0.7, delay: 0.2 }}
             className="max-w-2xl mx-auto text-zinc-600 dark:text-zinc-400 mb-10 leading-relaxed"
           >
-            NEXUS is a voice-controlled AI agent with full native Linux access. 
+            CoComputer is a voice-controlled AI agent with full native Linux access. 
             Speak your intent, and watch it execute commands, browse the web, and build software in an isolated cloud sandbox.
           </motion.p>
 
@@ -233,7 +233,7 @@ export default function HomePage() {
               <div className="ml-4 flex-1 flex justify-center">
                 <div className="px-4 py-1 text-[10px] font-mono font-bold text-zinc-400 dark:text-zinc-500 bg-zinc-200/50 dark:bg-zinc-800/50 rounded-full flex items-center gap-2">
                   <div className="w-1 h-1 rounded-full bg-emerald-500 animate-pulse" />
-                  nexus-prod-instance.cloud
+                  cocomputer-prod-instance.cloud
                 </div>
               </div>
               <div className="flex gap-4 items-center">
@@ -295,7 +295,7 @@ export default function HomePage() {
                      <div className="bg-zinc-950 px-5 py-3 border-b border-white/5 flex items-center justify-between">
                        <div className="flex items-center gap-3">
                           <Terminal className="w-3.5 h-3.5 text-blue-500" />
-                          <span className="text-[10px] font-mono text-zinc-400 uppercase tracking-widest">Root@Nexus-Sandbox:~</span>
+                          <span className="text-[10px] font-mono text-zinc-400 uppercase tracking-widest">Root@CoComputer-Sandbox:~</span>
                        </div>
                        <div className="flex items-center gap-4">
                           <div className="flex items-center gap-1.5">
@@ -450,7 +450,7 @@ export default function HomePage() {
                 Designed for the <br /> <span className="text-zinc-500">Autonomous Era.</span>
               </h3>
               <p className="text-zinc-600 dark:text-zinc-400 text-lg leading-relaxed">
-                Nexus isn&apos;t just a voice interface, it&apos;s a distributed neural network. We orchestrate the world&apos;s most advanced LLMs to drive real-time Linux kernels with near-zero latency, ensuring every command is precise, secure, and context-aware.
+                CoComputer isn&apos;t just a voice interface, it&apos;s a distributed neural network. We orchestrate the world&apos;s most advanced LLMs to drive real-time Linux kernels with near-zero latency, ensuring every command is precise, secure, and context-aware.
               </p>
               
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-8 pt-4">
@@ -533,7 +533,7 @@ export default function HomePage() {
             <div className="relative z-10">
               <h3 className="text-3xl md:text-5xl font-bold text-white mb-6">Experience the future of <br /> computer interaction.</h3>
               <p className="text-blue-100 text-lg mb-10 max-w-xl mx-auto text-balance">
-                Nexus is open for early access. Start building multimodal agents today with $0 setup costs.
+                CoComputer is open for early access. Start building multimodal agents today with $0 setup costs.
               </p>
               <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
                 {mounted ? (
@@ -571,7 +571,7 @@ export default function HomePage() {
                 <div className="w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center text-white font-bold shadow-lg shadow-blue-500/20">
                   <Terminal className="w-4 h-4" />
                 </div>
-                <span className="font-bold text-xl tracking-tighter">Nexus</span>
+                <span className="font-bold text-xl tracking-tighter">CoComputer</span>
               </Link>
               <p className="text-zinc-500 dark:text-zinc-400 text-sm leading-relaxed max-w-xs">
                 Autonomous multimodal neural architecture bridging the gap between human language and native Linux environments.
@@ -604,7 +604,7 @@ export default function HomePage() {
 
             <div className="col-span-2 md:col-span-4 space-y-4">
               <h5 className="text-xs font-bold uppercase tracking-widest text-zinc-900 dark:text-white">Subscribe</h5>
-              <p className="text-sm text-zinc-500 dark:text-zinc-400">Join 2,000+ developers building with Nexus.</p>
+              <p className="text-sm text-zinc-500 dark:text-zinc-400">Join 2,000+ developers building with CoComputer.</p>
               {mounted ? (
                 <form className="flex gap-2" onSubmit={(e) => e.preventDefault()}>
                   <input 
@@ -628,7 +628,7 @@ export default function HomePage() {
           </div>
           
           <div className="pt-8 border-t border-zinc-100 dark:border-zinc-800/50 flex flex-col md:flex-row justify-between items-center gap-6 text-[10px] font-bold text-zinc-400 uppercase tracking-widest">
-            <p>© {new Date().getFullYear()} Nexus Systems Architecture. All rights reserved.</p>
+            <p>© {new Date().getFullYear()} CoComputer Systems. All rights reserved.</p>
             <div className="flex items-center gap-6">
               <a href="#" className="hover:text-zinc-900 dark:hover:text-white transition-colors">Privacy Policy</a>
               <a href="#" className="hover:text-zinc-900 dark:hover:text-white transition-colors">Terms of Service</a>

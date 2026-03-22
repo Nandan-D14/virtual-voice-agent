@@ -80,7 +80,7 @@ def beta_status_message(profile: Mapping[str, Any]) -> str:
         return "Your beta application was not approved yet. Update the details and apply again."
     if status == "revoked":
         return "Beta access has been revoked for this account."
-    return "Beta access is limited. Submit the application form before using Nexus."
+    return "Beta access is limited. Submit the application form before using CoComputer."
 
 
 def build_beta_error_payload(profile: Mapping[str, Any]) -> dict[str, str]:

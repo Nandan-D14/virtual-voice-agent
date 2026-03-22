@@ -65,7 +65,7 @@ export default function NotificationsSettingsPage() {
     <div className="space-y-8 max-w-2xl text-zinc-900 dark:text-zinc-100">
       <div>
         <h2 className="text-xl font-semibold tracking-tight text-zinc-900 dark:text-zinc-100 mb-2">Notifications</h2>
-        <p className="text-sm text-zinc-500">Control when and how Nexus contacts you.</p>
+        <p className="text-sm text-zinc-500">Control when and how CoComputer contacts you.</p>
       </div>
 
       <div className="space-y-4">
