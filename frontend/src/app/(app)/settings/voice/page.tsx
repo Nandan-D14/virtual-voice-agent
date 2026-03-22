@@ -1,7 +1,7 @@
 "use client";
 
 import { useAuth } from "@/lib/auth-context";
-import { Mic, Volume2, Save, Loader2, Play } from "lucide-react";
+import { Volume2, Save, Loader2 } from "lucide-react";
 import { useState, useEffect } from "react";
 import { db } from "@/lib/firebase-client";
 import { doc, getDoc, setDoc } from "firebase/firestore";
@@ -43,8 +43,6 @@ export default function VoiceSettingsPage() {
       setSaving(false);
     }
   };
-
-  const selectedVoice = VOICES.find(v => v.id === voiceId) || VOICES[0];
 
   return (
     <div className="space-y-8 max-w-2xl text-zinc-900 dark:text-zinc-100">

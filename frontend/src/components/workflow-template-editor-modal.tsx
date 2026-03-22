@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useReducer } from "react";
 
 import type { WorkflowTemplateInputField } from "@/lib/message-types";
 import type { WorkflowTemplateDraft } from "@/lib/workflow-template-utils";
@@ -22,6 +22,46 @@ function cloneInputFields(fields: WorkflowTemplateInputField[]) {
   return fields.map((field) => ({ ...field }));
 }
 
+type EditorState = {
+  name: string;
+  description: string;
+  instructions: string;
+  inputFields: WorkflowTemplateInputField[];
+};
+
+type EditorAction =
+  | { type: "reset"; draft: WorkflowTemplateDraft | undefined }
+  | { type: "setName"; value: string }
+  | { type: "setDescription"; value: string }
+  | { type: "setInstructions"; value: string }
+  | { type: "setInputFields"; value: WorkflowTemplateInputField[] };
+
+function buildEditorState(draft: WorkflowTemplateDraft | undefined): EditorState {
+  return {
+    name: draft?.name ?? "",
+    description: draft?.description ?? "",
+    instructions: draft?.instructions ?? "",
+    inputFields: cloneInputFields(draft?.inputFields ?? []),
+  };
+}
+
+function editorReducer(state: EditorState, action: EditorAction): EditorState {
+  switch (action.type) {
+    case "reset":
+      return buildEditorState(action.draft);
+    case "setName":
+      return { ...state, name: action.value };
+    case "setDescription":
+      return { ...state, description: action.value };
+    case "setInstructions":
+      return { ...state, instructions: action.value };
+    case "setInputFields":
+      return { ...state, inputFields: action.value };
+    default:
+      return state;
+  }
+}
+
 export function WorkflowTemplateEditorModal({
   open,
   title,
@@ -35,66 +75,65 @@ export function WorkflowTemplateEditorModal({
   onSubmit,
 }: WorkflowTemplateEditorModalProps) {
   const resolvedDraft = initialValue ?? initialDraft;
-  const [name, setName] = useState(resolvedDraft?.name ?? "");
-  const [description, setDescription] = useState(resolvedDraft?.description ?? "");
-  const [instructions, setInstructions] = useState(resolvedDraft?.instructions ?? "");
-  const [inputFields, setInputFields] = useState<WorkflowTemplateInputField[]>(
-    cloneInputFields(resolvedDraft?.inputFields ?? []),
-  );
+  const [state, dispatch] = useReducer(editorReducer, buildEditorState(resolvedDraft));
 
   useEffect(() => {
     if (!open) {
       return;
     }
-    setName(resolvedDraft?.name ?? "");
-    setDescription(resolvedDraft?.description ?? "");
-    setInstructions(resolvedDraft?.instructions ?? "");
-    setInputFields(cloneInputFields(resolvedDraft?.inputFields ?? []));
-  }, [initialDraft, initialValue, open, resolvedDraft?.description, resolvedDraft?.inputFields, resolvedDraft?.instructions, resolvedDraft?.name]);
+    dispatch({ type: "reset", draft: resolvedDraft });
+  }, [open, resolvedDraft]);
 
   if (!open) {
     return null;
   }
 
   const addField = () => {
-    setInputFields((prev) => [
-      ...prev,
+    dispatch({
+      type: "setInputFields",
+      value: [
+        ...state.inputFields,
       {
-        key: `field_${prev.length + 1}`,
-        label: `Field ${prev.length + 1}`,
+        key: `field_${state.inputFields.length + 1}`,
+        label: `Field ${state.inputFields.length + 1}`,
         placeholder: "",
         required: false,
       },
-    ]);
+      ],
+    });
   };
 
   const updateField = (
     index: number,
     patch: Partial<WorkflowTemplateInputField>,
   ) => {
-    setInputFields((prev) =>
-      prev.map((field, fieldIndex) =>
+    dispatch({
+      type: "setInputFields",
+      value: state.inputFields.map((field, fieldIndex) =>
         fieldIndex === index ? { ...field, ...patch } : field,
       ),
-    );
+    });
   };
 
   const removeField = (index: number) => {
-    setInputFields((prev) => prev.filter((_, fieldIndex) => fieldIndex !== index));
+    dispatch({
+      type: "setInputFields",
+      value: state.inputFields.filter((_, fieldIndex) => fieldIndex !== index),
+    });
   };
 
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    const trimmedName = name.trim();
-    const trimmedInstructions = instructions.trim();
+    const trimmedName = state.name.trim();
+    const trimmedInstructions = state.instructions.trim();
     if (!trimmedName || !trimmedInstructions) {
       return;
     }
     await onSubmit({
       name: trimmedName,
-      description: description.trim(),
+      description: state.description.trim(),
       instructions: trimmedInstructions,
-      inputFields: inputFields.map((field) => ({
+      inputFields: state.inputFields.map((field) => ({
         key: field.key.trim(),
         label: field.label.trim(),
         placeholder: field.placeholder.trim(),
@@ -131,8 +170,8 @@ export function WorkflowTemplateEditorModal({
                 Template name
               </span>
               <input
-                value={name}
-                onChange={(event) => setName(event.target.value)}
+                value={state.name}
+                onChange={(event) => dispatch({ type: "setName", value: event.target.value })}
                 className="w-full rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm text-zinc-900 outline-none transition focus:border-cyan-500 dark:border-white/10 dark:bg-[#1a1a1d] dark:text-zinc-100"
                 placeholder="Competitor research"
               />
@@ -142,8 +181,10 @@ export function WorkflowTemplateEditorModal({
                 Description
               </span>
               <input
-                value={description}
-                onChange={(event) => setDescription(event.target.value)}
+                value={state.description}
+                onChange={(event) =>
+                  dispatch({ type: "setDescription", value: event.target.value })
+                }
                 className="w-full rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm text-zinc-900 outline-none transition focus:border-cyan-500 dark:border-white/10 dark:bg-[#1a1a1d] dark:text-zinc-100"
                 placeholder="Reusable workflow summary"
               />
@@ -155,8 +196,10 @@ export function WorkflowTemplateEditorModal({
               Instructions
             </span>
             <textarea
-              value={instructions}
-              onChange={(event) => setInstructions(event.target.value)}
+              value={state.instructions}
+              onChange={(event) =>
+                dispatch({ type: "setInstructions", value: event.target.value })
+              }
               rows={10}
               className="w-full rounded-3xl border border-zinc-200 bg-zinc-50 px-4 py-4 text-sm leading-6 text-zinc-900 outline-none transition focus:border-cyan-500 dark:border-white/10 dark:bg-[#1a1a1d] dark:text-zinc-100"
               placeholder="Describe the workflow the agent should reuse."
@@ -183,12 +226,12 @@ export function WorkflowTemplateEditorModal({
             </div>
 
             <div className="space-y-3">
-              {inputFields.length === 0 ? (
+              {state.inputFields.length === 0 ? (
                 <div className="rounded-2xl border border-dashed border-zinc-300 px-4 py-5 text-sm text-zinc-500 dark:border-white/10">
                   This template does not need extra inputs yet.
                 </div>
               ) : (
-                inputFields.map((field, index) => (
+                state.inputFields.map((field, index) => (
                   <div
                     key={`${field.key}-${index}`}
                     className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4 dark:border-white/10 dark:bg-[#151518]"
@@ -260,7 +303,7 @@ export function WorkflowTemplateEditorModal({
             </button>
             <button
               type="submit"
-              disabled={isSubmitting || !name.trim() || !instructions.trim()}
+              disabled={isSubmitting || !state.name.trim() || !state.instructions.trim()}
               className="rounded-full bg-cyan-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-cyan-700 disabled:cursor-not-allowed disabled:opacity-60"
             >
               {isSubmitting ? "Saving..." : submitLabel}

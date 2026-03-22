@@ -29,6 +29,13 @@ class Settings(BaseSettings):
     require_byok: bool = False
     byok_encryption_key: str = ""
     shared_access_code: str = ""
+    # Future use: keep the controlled beta/access-code system in the codebase,
+    # but ship internal testing with the gate disabled by default.
+    beta_access_enabled: bool = False
+    beta_enforce_byok: bool = True
+    beta_admin_emails: str = ""
+    beta_google_sheet_id: str = ""
+    beta_google_sheet_name: str = "beta_applications"
 
     # Google / Gemini
     google_api_key: str = ""
@@ -119,7 +126,7 @@ def validate_startup_settings() -> None:
     issues: list[str] = []
     parsed_frontend = urlparse(settings.frontend_url)
 
-    if settings.jwt_secret == "dev-secret-change-in-production":
+    if settings.jwt_secret in {"dev-secret-change-in-production", "change-this-in-production"}:
         issues.append("JWT_SECRET must be set to a non-default value")
     if parsed_frontend.scheme not in {"http", "https"} or not parsed_frontend.netloc:
         issues.append("FRONTEND_URL must be a valid absolute http(s) URL")
@@ -135,6 +142,10 @@ def validate_startup_settings() -> None:
         issues.append("A server-side model provider must be configured when REQUIRE_BYOK is false")
     if bool(settings.google_oauth_client_id) != bool(settings.google_oauth_client_secret):
         issues.append("GOOGLE_OAUTH_CLIENT_ID and GOOGLE_OAUTH_CLIENT_SECRET must be configured together")
+    if settings.beta_access_enabled and not settings.beta_admin_emails.strip():
+        issues.append("BETA_ADMIN_EMAILS must include at least one admin email")
+    if settings.beta_access_enabled and not settings.beta_google_sheet_id.strip():
+        issues.append("BETA_GOOGLE_SHEET_ID must be configured for beta application sync")
 
     if issues:
         joined = "; ".join(issues)

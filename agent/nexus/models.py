@@ -226,3 +226,52 @@ class UserSettingsUpdateRequest(BaseModel):
     model_config = ConfigDict(extra="allow")
 
     byok: ByokUpdateRequest | None = None
+
+
+# ── Controlled Beta Access ───────────────────────────────────────
+
+class BetaApplicationRequest(BaseModel):
+    full_name: str = Field(min_length=2, max_length=120)
+    role: str = Field(min_length=2, max_length=120)
+    company_team: str = Field(min_length=2, max_length=120)
+    primary_use_case: str = Field(min_length=10, max_length=500)
+    current_workflow: str = Field(min_length=10, max_length=1_000)
+    why_access: str = Field(min_length=10, max_length=1_000)
+    expected_usage_frequency: str = Field(min_length=2, max_length=120)
+    acknowledge_byok: bool = False
+
+
+class RedeemBetaAccessCodeRequest(BaseModel):
+    code: str = Field(min_length=4, max_length=64)
+
+
+class BetaApplicationSummary(BaseModel):
+    full_name: str = ""
+    email: str = ""
+    role: str = ""
+    company_team: str = ""
+    primary_use_case: str = ""
+    current_workflow: str = ""
+    why_access: str = ""
+    expected_usage_frequency: str = ""
+    acknowledge_byok: bool = False
+    status: str = "none"
+    sheet_sync_status: str | None = None
+
+
+class BetaStatusResponse(BaseModel):
+    state: Literal["none", "pending_review", "approved", "rejected", "revoked"] = "none"
+    can_apply: bool = True
+    can_access_app: bool = False
+    needs_access_code: bool = False
+    access_code_redeemed: bool = False
+    requires_byok_setup: bool = False
+    byok_missing: list[str] = Field(default_factory=list)
+    message: str = ""
+    application_submitted_at: datetime | None = None
+    application_updated_at: datetime | None = None
+    approved_at: datetime | None = None
+    rejected_at: datetime | None = None
+    revoked_at: datetime | None = None
+    redeemed_at: datetime | None = None
+    application: BetaApplicationSummary | None = None
