@@ -44,7 +44,7 @@ async function handler(
         Expires: "0",
       }),
     });
-  } catch (err) {
+  } catch {
     return NextResponse.json(
       { detail: "Backend unavailable" },
       { status: 502 }

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useReducer } from "react";
 
 import type { WorkflowTemplateData } from "@/lib/message-types";
 
@@ -13,6 +13,34 @@ type WorkflowTemplateRunModalProps = {
   onSubmit: (inputs: Record<string, string>) => void | Promise<void>;
 };
 
+type RunModalState = {
+  values: Record<string, string>;
+};
+
+type RunModalAction =
+  | { type: "reset"; template: WorkflowTemplateData | null }
+  | { type: "set"; key: string; value: string };
+
+function buildInitialValues(template: WorkflowTemplateData | null): Record<string, string> {
+  const nextValues: Record<string, string> = {};
+  for (const field of template?.input_fields ?? []) {
+    nextValues[field.key] = "";
+  }
+  return nextValues;
+}
+
+function runModalReducer(state: RunModalState, action: RunModalAction): RunModalState {
+  if (action.type === "reset") {
+    return { values: buildInitialValues(action.template) };
+  }
+  return {
+    values: {
+      ...state.values,
+      [action.key]: action.value,
+    },
+  };
+}
+
 export function WorkflowTemplateRunModal({
   open,
   template,
@@ -21,17 +49,15 @@ export function WorkflowTemplateRunModal({
   onClose,
   onSubmit,
 }: WorkflowTemplateRunModalProps) {
-  const [values, setValues] = useState<Record<string, string>>({});
+  const [state, dispatch] = useReducer(runModalReducer, {
+    values: buildInitialValues(template),
+  });
 
   useEffect(() => {
     if (!open || !template) {
       return;
     }
-    const nextValues: Record<string, string> = {};
-    for (const field of template.input_fields) {
-      nextValues[field.key] = "";
-    }
-    setValues(nextValues);
+    dispatch({ type: "reset", template });
   }, [open, template]);
 
   if (!open || !template) {
@@ -40,12 +66,12 @@ export function WorkflowTemplateRunModal({
 
   const hasMissingRequired = template.input_fields.some((field) => {
     if (!field.required) return false;
-    return !(values[field.key] ?? "").trim();
+    return !(state.values[field.key] ?? "").trim();
   });
 
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    await onSubmit(values);
+    await onSubmit(state.values);
   };
 
   return (
@@ -90,12 +116,13 @@ export function WorkflowTemplateRunModal({
                   ) : null}
                 </span>
                 <input
-                  value={values[field.key] ?? ""}
+                  value={state.values[field.key] ?? ""}
                   onChange={(event) =>
-                    setValues((prev) => ({
-                      ...prev,
-                      [field.key]: event.target.value,
-                    }))
+                    dispatch({
+                      type: "set",
+                      key: field.key,
+                      value: event.target.value,
+                    })
                   }
                   placeholder={field.placeholder || field.label}
                   className="w-full rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm text-zinc-900 outline-none transition focus:border-cyan-500 dark:border-white/10 dark:bg-[#1a1a1d] dark:text-zinc-100"

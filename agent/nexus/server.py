@@ -17,10 +17,26 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from nexus.auth import AuthenticatedUser, require_current_user
+from nexus.beta_access import (
+    append_beta_application_to_sheet,
+    beta_access_enabled,
+    beta_can_access_app,
+    beta_can_apply,
+    beta_needs_access_code,
+    beta_status_message,
+    build_beta_error_payload,
+    build_sheet_sync_state,
+    hash_beta_access_code,
+    is_beta_admin,
+    normalize_beta_profile,
+)
 from nexus.config import settings, apply_runtime_env_overrides, validate_startup_settings
 from nexus.firebase import get_firestore_client
 from nexus.history_repository import FirestoreHistoryRepository
 from nexus.models import (
+    BetaApplicationRequest,
+    BetaApplicationSummary,
+    BetaStatusResponse,
     ContextPacket,
     CreateWorkflowTemplateRequest,
     ErrorResponse,
@@ -37,6 +53,7 @@ from nexus.models import (
     StatusMessage,
     UserSettingsResponse,
     UserSettingsUpdateRequest,
+    RedeemBetaAccessCodeRequest,
     WorkflowTemplate,
     WorkflowTemplateInputField,
     WorkflowTemplateRunResponse,
@@ -459,15 +476,95 @@ def _build_session_response(
     )
 
 
+def _serialize_beta_application(application: dict[str, Any] | None) -> BetaApplicationSummary | None:
+    if not isinstance(application, dict):
+        return None
+    return BetaApplicationSummary(
+        full_name=str(application.get("fullName", "")),
+        email=str(application.get("email", "")),
+        role=str(application.get("role", "")),
+        company_team=str(application.get("companyTeam", "")),
+        primary_use_case=str(application.get("primaryUseCase", "")),
+        current_workflow=str(application.get("currentWorkflow", "")),
+        why_access=str(application.get("whyAccess", "")),
+        expected_usage_frequency=str(application.get("expectedUsageFrequency", "")),
+        acknowledge_byok=bool(application.get("acknowledgeByok")),
+        status=str(application.get("status", "none")),
+        sheet_sync_status=(
+            str(application.get("sheetSync", {}).get("status"))
+            if isinstance(application.get("sheetSync"), dict) and application.get("sheetSync", {}).get("status")
+            else None
+        ),
+    )
+
+
+def _build_beta_status_response(
+    *,
+    user_settings: dict[str, Any] | None,
+    application: dict[str, Any] | None = None,
+) -> BetaStatusResponse:
+    # Future use: when controlled beta access is disabled we keep this endpoint
+    # alive so older frontend code can still bootstrap, but everyone is allowed
+    # through and only BYOK remains enforced.
+    if not beta_access_enabled():
+        byok_status = get_byok_status(user_settings)
+        requires_byok_setup = bool((settings.require_byok or settings.beta_enforce_byok) and not byok_status.configured)
+        return BetaStatusResponse(
+            state="none",
+            can_apply=False,
+            can_access_app=True,
+            needs_access_code=False,
+            access_code_redeemed=False,
+            requires_byok_setup=requires_byok_setup,
+            byok_missing=list(byok_status.missing) if requires_byok_setup else [],
+            message="Controlled beta access is disabled for now. This endpoint remains for future gated rollout.",
+            application=None,
+        )
+
+    profile = normalize_beta_profile(user_settings)
+    can_access_app = beta_can_access_app(profile)
+    byok_status = get_byok_status(user_settings)
+    requires_byok_setup = bool((settings.require_byok or settings.beta_enforce_byok) and can_access_app and not byok_status.configured)
+    return BetaStatusResponse(
+        state=profile["status"],
+        can_apply=beta_can_apply(profile),
+        can_access_app=can_access_app,
+        needs_access_code=beta_needs_access_code(profile),
+        access_code_redeemed=bool(profile.get("accessCodeRedeemed")),
+        requires_byok_setup=requires_byok_setup,
+        byok_missing=list(byok_status.missing) if requires_byok_setup else [],
+        message=beta_status_message(profile),
+        application_submitted_at=profile.get("applicationSubmittedAt"),
+        application_updated_at=profile.get("applicationUpdatedAt"),
+        approved_at=profile.get("approvedAt"),
+        rejected_at=profile.get("rejectedAt"),
+        revoked_at=profile.get("revokedAt"),
+        redeemed_at=profile.get("redeemedAt"),
+        application=_serialize_beta_application(application),
+    )
+
+
+def _ensure_beta_access(user_settings: dict[str, Any] | None) -> None:
+    # Future use: the access-code gate can be re-enabled with
+    # BETA_ACCESS_ENABLED=true without removing the beta code paths.
+    if not beta_access_enabled():
+        return
+    profile = normalize_beta_profile(user_settings)
+    if beta_can_access_app(profile):
+        return
+    raise HTTPException(status_code=403, detail=build_beta_error_payload(profile))
+
+
 async def _prepare_user_runtime(user: AuthenticatedUser) -> dict[str, Any]:
     await history_repository.upsert_user(user)
     user_settings = await history_repository.get_user_settings(user.uid)
+    _ensure_beta_access(user_settings)
     try:
         ensure_selected_gemini_provider_available(user_settings)
     except PermissionError as exc:
         raise HTTPException(status_code=403, detail=str(exc))
 
-    if settings.require_byok:
+    if settings.require_byok or settings.beta_enforce_byok:
         byok_status = get_byok_status(user_settings)
         if not byok_status.configured:
             raise HTTPException(
@@ -702,6 +799,143 @@ async def deep_health():
     )
 
 
+@app.get("/api/v1/beta/status", response_model=BetaStatusResponse)
+async def get_beta_status(user: AuthenticatedUser = Depends(require_current_user)):
+    await history_repository.upsert_user(user)
+    user_settings = await history_repository.get_user_settings(user.uid)
+    application = await history_repository.get_beta_application(user.uid)
+    return _build_beta_status_response(user_settings=user_settings, application=application)
+
+
+@app.post("/api/v1/beta/apply", response_model=BetaStatusResponse)
+async def apply_for_beta(
+    payload: BetaApplicationRequest,
+    user: AuthenticatedUser = Depends(require_current_user),
+):
+    if not beta_access_enabled():
+        await history_repository.upsert_user(user)
+        user_settings = await history_repository.get_user_settings(user.uid)
+        return _build_beta_status_response(user_settings=user_settings, application=None)
+
+    if not payload.acknowledge_byok:
+        raise HTTPException(status_code=400, detail="You must acknowledge the BYOK requirement before applying.")
+
+    await history_repository.upsert_user(user)
+    user_settings = await history_repository.get_user_settings(user.uid)
+    profile = normalize_beta_profile(user_settings)
+
+    if profile["status"] == "revoked":
+        raise HTTPException(status_code=403, detail=build_beta_error_payload(profile))
+    if profile["status"] == "pending_review":
+        raise HTTPException(status_code=409, detail="Your beta application is already pending review.")
+    if profile["status"] == "approved":
+        raise HTTPException(
+            status_code=409,
+            detail="Your beta application is already approved. Redeem the access code or continue setup.",
+        )
+
+    now = datetime.now(timezone.utc)
+    beta_application = {
+        "userId": user.uid,
+        "email": user.email or "",
+        "fullName": payload.full_name.strip(),
+        "role": payload.role.strip(),
+        "companyTeam": payload.company_team.strip(),
+        "primaryUseCase": payload.primary_use_case.strip(),
+        "currentWorkflow": payload.current_workflow.strip(),
+        "whyAccess": payload.why_access.strip(),
+        "expectedUsageFrequency": payload.expected_usage_frequency.strip(),
+        "acknowledgeByok": True,
+        "status": "pending_review",
+        "submittedAt": now,
+        "updatedAt": now,
+        "sheetSyncStatus": "pending",
+        "sheetSync": build_sheet_sync_state("pending"),
+    }
+    await history_repository.upsert_beta_application(user.uid, beta_application)
+    await history_repository.set_beta_profile(
+        user.uid,
+        {
+            **profile,
+            "status": "pending_review",
+            "applicationId": user.uid,
+            "applicationSubmittedAt": now,
+            "applicationUpdatedAt": now,
+            "approvedAt": None,
+            "rejectedAt": None,
+            "revokedAt": None,
+            "redeemedAt": None,
+            "accessCodeRedeemed": False,
+            "accessCodeId": None,
+            "accessCodePreview": None,
+            "lastDecisionBy": None,
+            "rejectionReason": None,
+            "revokedReason": None,
+        },
+    )
+
+    try:
+        append_beta_application_to_sheet(beta_application)
+        await history_repository.upsert_beta_application(
+            user.uid,
+            {
+                "sheetSyncStatus": "synced",
+                "sheetSync": build_sheet_sync_state("synced"),
+            },
+        )
+    except Exception as exc:
+        logger.warning("Beta application Sheets sync failed for %s: %s", user.uid, exc)
+        await history_repository.upsert_beta_application(
+            user.uid,
+            {
+                "sheetSyncStatus": "error",
+                "sheetSync": build_sheet_sync_state("error", str(exc)),
+            },
+        )
+
+    updated_user_settings = await history_repository.get_user_settings(user.uid)
+    application = await history_repository.get_beta_application(user.uid)
+    return _build_beta_status_response(user_settings=updated_user_settings, application=application)
+
+
+@app.post("/api/v1/beta/redeem-code", response_model=BetaStatusResponse)
+async def redeem_beta_access_code(
+    payload: RedeemBetaAccessCodeRequest,
+    user: AuthenticatedUser = Depends(require_current_user),
+):
+    if not beta_access_enabled():
+        await history_repository.upsert_user(user)
+        user_settings = await history_repository.get_user_settings(user.uid)
+        return _build_beta_status_response(user_settings=user_settings, application=None)
+
+    await history_repository.upsert_user(user)
+    user_settings = await history_repository.get_user_settings(user.uid)
+    profile = normalize_beta_profile(user_settings)
+
+    if profile["status"] != "approved":
+        raise HTTPException(status_code=403, detail=build_beta_error_payload(profile))
+    if profile.get("accessCodeRedeemed"):
+        application = await history_repository.get_beta_application(user.uid)
+        return _build_beta_status_response(user_settings=user_settings, application=application)
+
+    try:
+        await history_repository.redeem_beta_access_code(user.uid, hash_beta_access_code(payload.code))
+    except KeyError:
+        raise HTTPException(
+            status_code=403,
+            detail={"code": "BETA_ACCESS_CODE_INVALID", "detail": "Invalid beta access code."},
+        )
+    except PermissionError as exc:
+        raise HTTPException(
+            status_code=403,
+            detail={"code": "BETA_ACCESS_CODE_INVALID", "detail": str(exc)},
+        )
+
+    updated_user_settings = await history_repository.get_user_settings(user.uid)
+    application = await history_repository.get_beta_application(user.uid)
+    return _build_beta_status_response(user_settings=updated_user_settings, application=application)
+
+
 @app.post("/sessions", response_model=SessionResponse)
 async def create_session(
     payload: SessionCreateRequest | None = Body(default=None),
@@ -807,6 +1041,8 @@ async def refresh_ticket(session_id: str, user: AuthenticatedUser = Depends(requ
     """Generate a new WS authentication ticket for an existing session."""
     if not ticket_refresh_limiter.is_allowed(user.uid):
         raise HTTPException(status_code=429, detail="Too many ticket refresh requests. Please slow down.")
+    user_settings = await history_repository.get_user_settings(user.uid)
+    _ensure_beta_access(user_settings)
     session = session_manager.get_session(session_id)
     if not session or session.owner_id != user.uid:
         raise HTTPException(status_code=404, detail="Session not found")
@@ -1273,6 +1509,13 @@ async def websocket_endpoint(
         return
     if not valid_uid or not ws_connect_limiter.is_allowed(valid_uid):
         await ws.close(code=4429, reason="Rate limit exceeded")
+        return
+    try:
+        user_settings = await history_repository.get_user_settings(valid_uid)
+        _ensure_beta_access(user_settings)
+    except HTTPException as exc:
+        detail = exc.detail if isinstance(exc.detail, dict) else {"detail": str(exc.detail)}
+        await ws.close(code=4403, reason=str(detail.get("detail") or "Beta access required"))
         return
 
     session = session_manager.get_session(session_id)

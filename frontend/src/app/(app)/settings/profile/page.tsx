@@ -1,18 +1,11 @@
 "use client";
 
 import { useAuth } from "@/lib/auth-context";
-import { Mail, Shield, User as UserIcon, Monitor, Moon, Sun, Cloud, HardDrive, Key } from "lucide-react";
-import { useState, useEffect } from "react";
+import { Mail, Monitor, Moon, Sun, Cloud, HardDrive } from "lucide-react";
+import { useCallback, useEffect, useState } from "react";
 import { useTheme } from "next-themes";
-import Link from 'next/link';
 import { db } from "@/lib/firebase-client";
 import { doc, getDoc, setDoc } from "firebase/firestore";
-
-interface DrivePrefs {
-  autoExportDocs: boolean;
-  exportFormat: "markdown" | "html" | "plain";
-  includeAudio: boolean;
-}
 
 export default function ProfileSettingsPage() {
   const { user } = useAuth();
@@ -22,18 +15,8 @@ export default function ProfileSettingsPage() {
   
   // Google Drive state
   const [driveConnected, setDriveConnected] = useState(false);
-  const [drivePrefs, setDrivePrefs] = useState<DrivePrefs>({
-    autoExportDocs: true,
-    exportFormat: "markdown",
-    includeAudio: false
-  });
 
-  useEffect(() => {
-    setMounted(true);
-    checkDriveStatus();
-  }, [user]);
-
-  const checkDriveStatus = async () => {
+  const checkDriveStatus = useCallback(async () => {
     if (!user) return;
     try {
       const docSnap = await getDoc(doc(db, "users", user.uid));
@@ -42,14 +25,16 @@ export default function ProfileSettingsPage() {
         if (data.googleDriveTokens) {
           setDriveConnected(true);
         }
-        if (data.drivePrefs) {
-          setDrivePrefs({ ...drivePrefs, ...data.drivePrefs });
-        }
       }
     } catch (err) {
       console.error("Failed to check Drive status:", err);
     }
-  };
+  }, [user]);
+
+  useEffect(() => {
+    setMounted(true);
+    void checkDriveStatus();
+  }, [checkDriveStatus]);
 
   const handleConnectDrive = () => {
     if (!user) return;

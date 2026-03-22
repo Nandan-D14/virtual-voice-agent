@@ -19,6 +19,14 @@ import { useCallback, useEffect, useState } from "react";
 import { authenticatedFetch } from "@/lib/api-client";
 import { DEFAULT_PLAN_QUOTA, type PlanQuota } from "@/lib/message-types";
 
+const NAVIGATION = [
+  { name: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
+  { name: "History", href: "/history", icon: History },
+  { name: "Templates", href: "/templates", icon: Workflow },
+  { name: "Connectors", href: "/connectors", icon: Cable },
+  { name: "Settings", href: "/settings/api", icon: Settings },
+] as const;
+
 export function AppShell({ children }: { children: React.ReactNode }) {
   const { user, signOutUser, isLoading: isAuthLoading } = useAuth();
   const router = useRouter();
@@ -41,14 +49,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       });
   }, [user]);
 
-  const navigation = [
-    { name: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
-    { name: "History", href: "/history", icon: History },
-    { name: "Templates", href: "/templates", icon: Workflow },
-    { name: "Connectors", href: "/connectors", icon: Cable },
-    { name: "Settings", href: "/settings/api", icon: Settings },
-  ];
-
   const handleSignOut = async () => {
     await signOutUser();
     router.push("/");
@@ -61,35 +61,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     }
     router.push("/session/new");
   }, [router, user]);
-
-  const NavLinks = () => (
-    <>
-      {navigation.map((item) => {
-        const isActive = pathname.startsWith(item.href);
-        return (
-          <Link
-            key={item.href}
-            href={item.href}
-            onClick={() => setMobileMenuOpen(false)}
-            className={`relative flex items-center gap-3 px-4 py-2.5 rounded-full transition-all ${
-              isActive
-                ? "bg-[#f4f4f5] dark:bg-[#212126] text-zinc-900 dark:text-zinc-100 font-medium"
-                : "text-zinc-500 dark:text-zinc-400 hover:bg-[#f4f4f5] dark:hover:bg-[#212126] hover:text-zinc-900 dark:hover:text-zinc-100 font-medium"
-            }`}
-          >
-            <item.icon className="w-4 h-4" />
-            <span className="text-sm">{item.name}</span>
-            {isActive && (
-              <motion.div
-                layoutId="activeNav"
-                className="absolute left-2 w-1 h-5 bg-zinc-900 dark:bg-zinc-100 rounded-full"
-              />
-            )}
-          </Link>
-        );
-      })}
-    </>
-  );
 
   return (
     <div className="flex h-screen bg-white dark:bg-[#09090b] overflow-hidden text-zinc-900 dark:text-zinc-100">
@@ -132,7 +103,30 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         </div>
 
         <nav className="flex-1 px-3 py-4 flex flex-col gap-1 overflow-y-auto">
-          <NavLinks />
+          {NAVIGATION.map((item) => {
+            const isActive = pathname.startsWith(item.href);
+            return (
+              <Link
+                key={item.href}
+                href={item.href}
+                onClick={() => setMobileMenuOpen(false)}
+                className={`relative flex items-center gap-3 px-4 py-2.5 rounded-full transition-all ${
+                  isActive
+                    ? "bg-[#f4f4f5] dark:bg-[#212126] text-zinc-900 dark:text-zinc-100 font-medium"
+                    : "text-zinc-500 dark:text-zinc-400 hover:bg-[#f4f4f5] dark:hover:bg-[#212126] hover:text-zinc-900 dark:hover:text-zinc-100 font-medium"
+                }`}
+              >
+                <item.icon className="w-4 h-4" />
+                <span className="text-sm">{item.name}</span>
+                {isActive && (
+                  <motion.div
+                    layoutId="activeNav"
+                    className="absolute left-2 w-1 h-5 bg-zinc-900 dark:bg-zinc-100 rounded-full"
+                  />
+                )}
+              </Link>
+            );
+          })}
         </nav>
 
         {/* Starter Plan */}

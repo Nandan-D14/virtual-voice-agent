@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { useToast } from "@/components/toast-provider";
 
 import { authenticatedFetch, parseApiError, readApiError } from "./api-client";
+import { isBetaBlockedCode } from "./beta-access";
 import type {
   ArchivedMessage,
   HistoryReuseMode,
@@ -140,6 +141,12 @@ export function useSession(): UseSessionReturn {
 
       if (!res.ok) {
         const apiError = await readApiError(res);
+        if (isBetaBlockedCode(apiError.code)) {
+          setCreateError(apiError.message);
+          toast(apiError.message, "error");
+          router.push("/beta");
+          return null;
+        }
         if (apiError.code === "BYOK_REQUIRED") {
           setCreateError(apiError.message);
           toast(apiError.message, "error");
@@ -174,6 +181,12 @@ export function useSession(): UseSessionReturn {
 
       if (!res.ok) {
         const apiError = await readApiError(res);
+        if (isBetaBlockedCode(apiError.code)) {
+          setCreateError(apiError.message);
+          toast(apiError.message, "error");
+          router.push("/beta");
+          return null;
+        }
         if (apiError.code === "BYOK_REQUIRED") {
           setCreateError(apiError.message);
           toast(apiError.message, "error");
@@ -306,7 +319,20 @@ export function useSession(): UseSessionReturn {
       });
 
       if (!res.ok) {
-        throw new Error(await parseApiError(res));
+        const apiError = await readApiError(res);
+        if (isBetaBlockedCode(apiError.code)) {
+          setReuseError(apiError.message);
+          toast(apiError.message, "error");
+          router.push("/beta");
+          return null;
+        }
+        if (apiError.code === "BYOK_REQUIRED") {
+          setReuseError(apiError.message);
+          toast(apiError.message, "error");
+          router.push("/settings/api?setup=1");
+          return null;
+        }
+        throw new Error(apiError.message);
       }
 
       return (await res.json()) as SessionData;
@@ -318,7 +344,7 @@ export function useSession(): UseSessionReturn {
     } finally {
       setIsCreating(false);
     }
-  }, []);
+  }, [router, toast]);
 
   const refreshTicket = useCallback(async (sessionId: string) => {
     setIsRefreshing(true);
@@ -333,7 +359,20 @@ export function useSession(): UseSessionReturn {
       );
 
       if (!res.ok) {
-        throw new Error(await parseApiError(res));
+        const apiError = await readApiError(res);
+        if (isBetaBlockedCode(apiError.code)) {
+          setRefreshError(apiError.message);
+          toast(apiError.message, "error");
+          router.push("/beta");
+          return null;
+        }
+        if (apiError.code === "BYOK_REQUIRED") {
+          setRefreshError(apiError.message);
+          toast(apiError.message, "error");
+          router.push("/settings/api?setup=1");
+          return null;
+        }
+        throw new Error(apiError.message);
       }
 
       const body = (await res.json()) as { ws_ticket: string };
@@ -346,7 +385,7 @@ export function useSession(): UseSessionReturn {
     } finally {
       setIsRefreshing(false);
     }
-  }, []);
+  }, [router, toast]);
 
   const destroySession = useCallback(async (sessionId: string) => {
     setIsDestroying(true);

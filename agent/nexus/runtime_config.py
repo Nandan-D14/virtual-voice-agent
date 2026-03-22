@@ -169,7 +169,7 @@ def build_public_user_settings(user_settings: Mapping[str, Any] | None) -> dict[
         else None
     )
     return {
-        "requireByok": settings.require_byok,
+        "requireByok": settings.require_byok or settings.beta_enforce_byok,
         "googleDriveConnected": google_drive_connected,
         "settings": raw_settings,
         "byok": {

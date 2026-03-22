@@ -2,12 +2,12 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useState, useEffect } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 import { motion, useScroll, useSpring } from "framer-motion";
 import { useAuth } from "@/lib/auth-context";
 import { listRecentSessions } from "@/lib/firestore-history";
 import type { RecentSession } from "@/lib/message-types";
-import { fetchUserSettings, requiresByokSetup } from "@/lib/user-settings";
+import { fetchBetaStatus } from "@/lib/beta-access";
 import { Code2, Cpu, Layout, Mic, Shield, Terminal, ArrowRight, Github } from "lucide-react";
 
 export default function HomePage() {
@@ -21,7 +21,11 @@ export default function HomePage() {
   } = useAuth();
   const [recentSessions, setRecentSessions] = useState<RecentSession[]>([]);
   const [scrolled, setScrolled] = useState(false);
-  const [mounted, setMounted] = useState(false);
+  const mounted = useSyncExternalStore(
+    () => () => {},
+    () => true,
+    () => false,
+  );
   const { scrollYProgress } = useScroll();
   const scaleX = useSpring(scrollYProgress, {
     stiffness: 100,
@@ -53,8 +57,15 @@ export default function HomePage() {
     async function maybeRedirectToSetup() {
       if (!user) return;
       try {
-        const userSettings = await fetchUserSettings();
-        if (!cancelled && requiresByokSetup(userSettings)) {
+        const betaStatus = await fetchBetaStatus();
+        if (cancelled) {
+          return;
+        }
+        if (!betaStatus.can_access_app) {
+          router.replace("/beta");
+          return;
+        }
+        if (betaStatus.requires_byok_setup) {
           router.replace("/settings/api?setup=1");
         }
       } catch {}
@@ -62,12 +73,6 @@ export default function HomePage() {
     void maybeRedirectToSetup();
     return () => { cancelled = true; };
   }, [router, user]);
-
-  useEffect(() => {
-    // Ensure certain interactive UI only renders after hydration to avoid
-    // hydration-mismatch warnings caused by extensions or client-only state.
-    setMounted(true);
-  }, []);
 
   const handleStart = async () => {
     if (!user) return;
