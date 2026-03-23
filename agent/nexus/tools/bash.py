@@ -11,6 +11,15 @@ _MAX_EXCERPT_CHARS = 480
 _MAX_SUMMARY_CHARS = 220
 
 
+def _coerce_exit_code(value: object) -> int:
+    try:
+        if value is None:
+            return -1
+        return int(value)
+    except (TypeError, ValueError):
+        return -1
+
+
 def _useful_lines(text: str, *, limit: int = 4) -> list[str]:
     lines = []
     for raw in text.splitlines():
@@ -71,7 +80,7 @@ def run_command(command: str, background: bool = False) -> dict:
         result = sandbox.run_command(command, timeout=120, background=background)
         stdout = str(result.get("stdout") or "")
         stderr = str(result.get("stderr") or "")
-        exit_code = int(result.get("exit_code", -1) or -1)
+        exit_code = _coerce_exit_code(result.get("exit_code", -1))
         compact = {
             "command": command,
             "summary": _build_summary(command, stdout, stderr, exit_code),

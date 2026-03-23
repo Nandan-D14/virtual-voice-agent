@@ -584,11 +584,18 @@ export default function SessionPage() {
         break;
 
       case "error":
-        setPageError(msg.message);
+        setPageError(msg.detail || msg.message);
         setAgentStatus("");
         setChatItems((prev) => [
           ...prev,
-          { kind: "event", type: msg.type, code: msg.code, message: msg.message, ts },
+          {
+            kind: "event",
+            type: msg.type,
+            code: msg.code,
+            message: msg.message,
+            detail: msg.detail,
+            ts,
+          },
         ]);
         break;
 

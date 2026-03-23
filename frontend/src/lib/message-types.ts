@@ -105,7 +105,7 @@ export type WsMessage =
       vision_model: string;
       packet: ContextPacket;
     }
-  | { type: "error"; code: string; message: string }
+  | { type: "error"; code: string; message: string; detail?: string }
   | { type: "pong" };
 
 // ── Client -> Server (Text frames) ─────────────────────────────────

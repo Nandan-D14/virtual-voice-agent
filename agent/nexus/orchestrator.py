@@ -8,9 +8,9 @@ import hashlib
 import logging
 from typing import TYPE_CHECKING, Any
 
-from starlette.websockets import WebSocket
+from starlette.websockets import WebSocket, WebSocketState
 
-from nexus.agent import create_agent, create_multi_agent, create_runner, run_agent_turn
+from nexus.agent import AgentTurnResult, create_agent, create_multi_agent, create_runner, run_agent_turn
 from nexus.background_tasks import BackgroundTask, BackgroundTaskManager
 from nexus.billing import calculate_screenshot_credits
 from nexus.history_repository import FirestoreHistoryRepository
@@ -18,12 +18,20 @@ from nexus.runtime_config import SessionRuntimeConfig
 from nexus.sandbox import SandboxDeadError
 from nexus.tools._context import (
     set_bg_task_manager,
+    set_run_id,
     set_runtime_config,
     set_sandbox,
     set_session_id,
+    set_workspace_path,
 )
 from nexus.config import settings
 from nexus.prompts.system import SYSTEM_PROMPT, VOICE_SYSTEM_PROMPT
+from nexus.tools.workspace import (
+    derive_session_workspace_path,
+    derive_workspace_path,
+    prepare_task_workspace,
+    write_workspace_file,
+)
 from nexus.usage import TokenUsageRecord
 
 if TYPE_CHECKING:
@@ -52,6 +60,7 @@ class NexusOrchestrator:
         self.session = session
         self.ws = ws
         self.runtime_config: SessionRuntimeConfig = session.runtime_config
+        self._ws_send_lock: asyncio.Lock = getattr(ws, "_cocomputer_send_lock", asyncio.Lock())
         self.voice = None
         self._voice_connected = False
         self._voice_connect_task: asyncio.Task | None = None
@@ -92,6 +101,7 @@ class NexusOrchestrator:
         # Tracks the currently running agent turn so it can be cancelled
         self._agent_task: asyncio.Task | None = None
         self._stop_requested: bool = False
+        self._ws_connected: bool = True
 
         # Voice is lazy — only connects when user explicitly starts mic
         self._voice_started = asyncio.Event()
@@ -105,6 +115,7 @@ class NexusOrchestrator:
         self._turn_tool_summaries: list[str] = []
         self._budget_stop_requested: bool = False
         self._budget_stop_reason: str = ""
+        self._workspace_path: str | None = None
 
     async def initialize(self) -> None:
         """Set up ADK session. Voice connection is deferred until user starts mic."""
@@ -113,6 +124,13 @@ class NexusOrchestrator:
         set_bg_task_manager(self.bg_task_manager)
         set_runtime_config(self.runtime_config)
         set_session_id(self.session.id)
+        self._bind_workspace_context()
+        workspace_root_ready = await self._ensure_session_workspace_root()
+        if not workspace_root_ready:
+            logger.warning(
+                "Continuing session %s initialization without a prepared workspace root",
+                self.session.id,
+            )
 
         # Voice is NOT connected here — deferred until start_voice() is called
         if self.voice:
@@ -369,12 +387,14 @@ class NexusOrchestrator:
             if not await self._start_or_join_voice_reconnect("starting voice session"):
                 return
 
-        while True:
+        while self._ws_connected:
             should_reconnect = False
             try:
                 async for event_type, data in self.voice.receive_events():
+                    if not self._ws_connected:
+                        break
                     if event_type == "audio":
-                        await self.ws.send_bytes(data)
+                        await self._send_bytes(data)
                     elif event_type == "user_transcript":
                         await self.handle_user_utterance(data)
                     elif event_type == "agent_transcript":
@@ -445,9 +465,6 @@ class NexusOrchestrator:
 
     def _task_model_candidates(self) -> tuple[str, ...]:
         primary = self.runtime_config.gemini_agent_model
-        if self.runtime_config.gemini_provider != "apiKey":
-            return (primary,)
-
         ordered: list[str] = []
         seen: set[str] = set()
         for model in (primary, *self.runtime_config.gemini_agent_fallback_models):
@@ -486,8 +503,8 @@ class NexusOrchestrator:
         """Run agent turn with automatic retry on rate-limit (429) errors.
 
         Uses exponential backoff (10s, 20s, 40s, 80s) to avoid hammering the
-        active provider while it recovers. API-key sessions can also fall back
-        to alternate task models after retries are exhausted.
+        active provider while it recovers. Sessions can also fall back to
+        alternate task models after retries are exhausted.
         """
         last_exc: Exception | None = None
         model_candidates = self._task_model_candidates()
@@ -511,7 +528,16 @@ class NexusOrchestrator:
                     raise
                 except Exception as exc:
                     if not self._is_rate_limit_error(exc):
-                        raise
+                        logger.error(
+                            "Agent turn failed with unexpected error for session %s",
+                            self.session.id,
+                            exc_info=True,
+                        )
+                        return AgentTurnResult(
+                            response=None,
+                            usage_records=[],
+                            error=str(exc) or "Agent encountered an unexpected error.",
+                        )
 
                     last_exc = exc
                     is_last_retry = attempt == self._RATE_LIMIT_MAX_RETRIES
@@ -810,6 +836,13 @@ class NexusOrchestrator:
             self.session.stream_url = info["stream_url"]
             # Re-bind the new sandbox to the tool context
             set_sandbox(self.session.sandbox)
+            self._bind_workspace_context()
+            workspace_root_ready = await self._ensure_session_workspace_root()
+            if not workspace_root_ready:
+                logger.warning(
+                    "Sandbox reconnected for session %s without a prepared workspace root",
+                    self.session.id,
+                )
             await self._send_json({"type": "sandbox_status", "status": "ready"})
             await self._send_json({"type": "vnc_url", "url": self.session.stream_url})
             await self._send_json({
@@ -845,11 +878,15 @@ class NexusOrchestrator:
 
     async def _run_agent_tracked(self, message: str, *, source: str) -> None:
         """Wrap _run_agent in a cancellable task and await it."""
+        if not self._ws_connected:
+            logger.info("Skipping agent turn start for session %s because the WebSocket is disconnected", self.session.id)
+            return
         self._stop_requested = False
         self._turn_screenshot_count = 0
         self._turn_tool_summaries = []
         self._budget_stop_requested = False
         self._budget_stop_reason = ""
+        await self._prepare_workspace_for_turn(message)
         self._current_turn_step_id = await self._create_step(
             step_type="agent_turn",
             title="Process request",
@@ -867,6 +904,15 @@ class NexusOrchestrator:
                     detail=self._clip_text(result.get("summary") or "Turn completed.", 1500),
                 )
                 await self._set_run_status("completed")
+            elif result["status"] == "cancelled":
+                await self._fail_unfinished_tool_steps(status="cancelled", error=result.get("summary"))
+                await self._fail_step(
+                    self._current_turn_step_id,
+                    detail=self._clip_text(result.get("summary") or "Turn cancelled.", 1500),
+                    error=result.get("summary"),
+                    status="cancelled",
+                )
+                await self._set_run_status("cancelled")
             else:
                 await self._fail_unfinished_tool_steps(status="failed", error=result.get("summary"))
                 await self._fail_step(
@@ -876,13 +922,17 @@ class NexusOrchestrator:
                 )
                 await self._set_run_status("failed")
         except asyncio.CancelledError:
-            logger.info("Agent turn cancelled by user for session %s", self.session.id)
+            cancel_reason = "WebSocket disconnected." if not self._ws_connected else "Stopped by user."
+            if self._ws_connected:
+                logger.info("Agent turn cancelled by user for session %s", self.session.id)
+            else:
+                logger.info("Agent turn cancelled after WebSocket disconnect for session %s", self.session.id)
             self._active_agent = "nexus_orchestrator"
-            await self._fail_unfinished_tool_steps(status="cancelled", error="Stopped by user.")
+            await self._fail_unfinished_tool_steps(status="cancelled", error=cancel_reason)
             await self._fail_step(
                 self._current_turn_step_id,
-                detail="Stopped by user.",
-                error="Stopped by user.",
+                detail=cancel_reason,
+                error=cancel_reason,
                 status="cancelled",
             )
             await self._set_run_status("cancelled")
@@ -894,6 +944,13 @@ class NexusOrchestrator:
     async def _run_agent(self, message: str) -> dict[str, str]:
         """Run an ADK agent turn and stream events to frontend."""
         self.session.touch()
+
+        if not self._ws_connected:
+            logger.info("WebSocket disconnected before agent turn started for session %s", self.session.id)
+            return {
+                "status": "cancelled",
+                "summary": "WebSocket disconnected before the turn started.",
+            }
 
         # Check starter-plan credits before running agent
         if self.history_repository:
@@ -941,6 +998,28 @@ class NexusOrchestrator:
             for usage in result.usage_records:
                 await self._persist_token_usage(usage)
 
+            if result.error:
+                logger.error(
+                    "Agent turn returned an error result for session %s: %s",
+                    self.session.id,
+                    result.error,
+                )
+                await self._mark_summary(
+                    "Agent encountered an error processing your request.",
+                    status="error",
+                    error_code="AGENT_ERROR",
+                )
+                await self._send_json({
+                    "type": "error",
+                    "code": "AGENT_ERROR",
+                    "message": "Agent encountered an error processing your request.",
+                    "detail": result.error,
+                })
+                return {
+                    "status": "failed",
+                    "summary": result.error,
+                }
+
             # Check if sandbox died during the agent turn
             if not self.session.sandbox.is_alive:
                 logger.warning("Sandbox died during agent turn for session %s — reconnecting", self.session.id)
@@ -973,6 +1052,7 @@ class NexusOrchestrator:
                     "type": "agent_complete",
                     "summary": result.response[:200],
                 })
+                await self._save_final_response(result.response)
                 await self._mark_summary(result.response)
                 await self._create_artifact(
                     kind="summary",
@@ -1003,6 +1083,7 @@ class NexusOrchestrator:
                     "type": "agent_complete",
                     "summary": summary[:200],
                 })
+                await self._save_final_response(summary)
                 await self._mark_summary(summary)
                 await self._create_artifact(
                     kind="summary",
@@ -1025,6 +1106,7 @@ class NexusOrchestrator:
                 "type": "error",
                 "code": "AGENT_ERROR",
                 "message": "Agent encountered an error processing your request.",
+                "detail": str(exc) or "Agent encountered an error processing your request.",
             })
             return {
                 "status": "failed",
@@ -1034,8 +1116,7 @@ class NexusOrchestrator:
     async def _on_agent_event(self, event: Any) -> None:
         """Callback for each ADK agent event — stream to frontend."""
         # Bail out early if stop was requested
-        if self._stop_requested:
-            raise _AgentStopped()
+        self._raise_if_agent_should_stop()
 
         try:
             # Detect agent delegation (sub-agent transfer)
@@ -1051,6 +1132,7 @@ class NexusOrchestrator:
             function_calls = self._extract_function_calls(event)
 
             for fc in function_calls:
+                self._raise_if_agent_should_stop()
                 tool_name = self._get_attr(fc, "name", "tool_name") or str(fc)
                 tool_args = self._get_attr(fc, "args", "tool_input") or {}
                 if tool_name == "take_screenshot":
@@ -1091,6 +1173,7 @@ class NexusOrchestrator:
             is_final = self._is_final_response(event)
 
             for part in parts:
+                self._raise_if_agent_should_stop()
                 text = getattr(part, "text", None)
                 if text and not is_final:
                     await self._send_json({
@@ -1163,6 +1246,8 @@ class NexusOrchestrator:
                             metadata=artifact_ref.get("metadata"),
                         )
 
+        except _AgentStopped:
+            raise
         except Exception:
             logger.exception("Error streaming agent event")
 
@@ -1346,12 +1431,76 @@ class NexusOrchestrator:
             }
         return {"value": str(value)}
 
+    def mark_ws_disconnected(self) -> None:
+        self._ws_connected = False
+        self._stop_requested = True
+
+    def _ws_is_open(self) -> bool:
+        return (
+            self._ws_connected
+            and self.ws.client_state == WebSocketState.CONNECTED
+            and self.ws.application_state == WebSocketState.CONNECTED
+        )
+
+    def _raise_if_agent_should_stop(self) -> None:
+        if self._stop_requested:
+            raise _AgentStopped()
+        if self._ws_is_open():
+            return
+        if self._ws_connected:
+            logger.info("WebSocket disconnected — stopping agent turn early")
+        self.mark_ws_disconnected()
+        raise _AgentStopped()
+
+    async def _send_bytes(self, data: bytes) -> None:
+        try:
+            async with self._ws_send_lock:
+                if not self._ws_is_open():
+                    logger.debug("Skipping WS audio frame — connection not open")
+                    return
+                await self.ws.send_bytes(data)
+        except RuntimeError as exc:
+            if "websocket.close" in str(exc) or "response already completed" in str(exc):
+                logger.debug("Skipping WS audio frame — connection closed")
+                self.mark_ws_disconnected()
+            else:
+                logger.warning("Failed to send WS audio frame", exc_info=True)
+        except Exception:
+            if not self._ws_is_open():
+                logger.debug("Skipping WS audio frame — connection closed")
+                self.mark_ws_disconnected()
+                return
+            logger.warning("Failed to send WS audio frame", exc_info=True)
+
     async def _send_json(self, data: dict) -> None:
         """Send JSON message to the frontend WebSocket."""
+        message_type = data.get("type")
         try:
-            await self.ws.send_json(data)
+            async with self._ws_send_lock:
+                if not self._ws_is_open():
+                    logger.debug("Skipping WS message %s — connection not open", message_type)
+                    return
+                await self.ws.send_json(data)
+        except RuntimeError as exc:
+            if "websocket.close" in str(exc) or "response already completed" in str(exc):
+                logger.debug("Skipping WS message %s — connection closed", message_type)
+                self.mark_ws_disconnected()
+            else:
+                logger.warning(
+                    "Failed to send WS message: %s",
+                    message_type,
+                    exc_info=True,
+                )
         except Exception:
-            logger.warning("Failed to send WS message: %s", data.get("type"))
+            if not self._ws_is_open():
+                logger.debug("Skipping WS message %s — connection closed", message_type)
+                self.mark_ws_disconnected()
+                return
+            logger.warning(
+                "Failed to send WS message: %s",
+                message_type,
+                exc_info=True,
+            )
 
     @staticmethod
     def _quota_update_payload(quota: dict[str, Any]) -> dict[str, Any]:
@@ -1632,6 +1781,116 @@ class NexusOrchestrator:
             "url": artifact.url,
             "metadata": artifact.metadata or {},
         }
+
+    def _bind_workspace_context(self) -> None:
+        if not self._current_run_id:
+            return
+        self._workspace_path = derive_workspace_path(self.session.id, self._current_run_id)
+        set_run_id(self._current_run_id)
+        set_workspace_path(self._workspace_path)
+
+    async def _prepare_workspace_for_turn(self, task_summary: str) -> None:
+        if not self._current_run_id:
+            return
+        self._bind_workspace_context()
+        if not await self._ensure_session_workspace_root():
+            logger.warning(
+                "Proceeding with per-run workspace preparation even though session root %s "
+                "could not be pre-created for session %s",
+                derive_session_workspace_path(self.session.id),
+                self.session.id,
+            )
+        step_id = await self._create_step(
+            step_type="workspace_sync",
+            title="Workspace prepared",
+            detail="Preparing run workspace and task files.",
+            source="system",
+            metadata={"workspace_path": self._workspace_path or ""},
+        )
+        try:
+            result = await prepare_task_workspace(task_summary)
+            if result.get("error"):
+                raise RuntimeError(str(result["error"]))
+            detail = (
+                f"Workspace ready at {result['workspace_path']}."
+                if not result.get("created")
+                else f"Created workspace at {result['workspace_path']}."
+            )
+            touched_files = result.get("touched_files") or []
+            if touched_files:
+                detail += f" Updated: {', '.join(str(name) for name in touched_files)}."
+            await self._complete_step(
+                step_id,
+                detail=detail,
+                metadata={
+                    "workspace_path": result.get("workspace_path"),
+                    "touched_files": touched_files,
+                    "created": bool(result.get("created")),
+                },
+            )
+        except Exception as exc:
+            await self._fail_step(
+                step_id,
+                detail="Failed to prepare the run workspace.",
+                error=str(exc),
+                metadata={"workspace_path": self._workspace_path or ""},
+            )
+            raise
+
+    async def _save_final_response(self, text: str) -> None:
+        if not text.strip() or not self._current_run_id:
+            return
+        try:
+            self._bind_workspace_context()
+            result = await write_workspace_file("outputs/final.md", text, append=False)
+            output_path = result.get("output_path")
+            if isinstance(output_path, str) and output_path:
+                await self._create_artifact(
+                    kind="workspace_output",
+                    title="final.md",
+                    preview=self._clip_text(text, 280),
+                    source_step_id=self._current_turn_step_id,
+                    path=output_path,
+                    metadata={
+                        "workspace_path": self._workspace_path or "",
+                        "workspace_relative_path": "outputs/final.md",
+                        "source": "final_response",
+                    },
+                )
+        except Exception:
+            logger.exception("Failed to save final response into the workspace")
+
+    async def _ensure_session_workspace_root(self) -> bool:
+        session_workspace_path = derive_session_workspace_path(self.session.id)
+        loop = asyncio.get_running_loop()
+        last_exc: Exception | None = None
+        for attempt in range(1, 4):
+            try:
+                await loop.run_in_executor(
+                    None,
+                    self.session.sandbox.ensure_directory,
+                    session_workspace_path,
+                )
+                return True
+            except Exception as exc:
+                last_exc = exc if isinstance(exc, Exception) else RuntimeError(str(exc))
+                logger.warning(
+                    "Workspace root creation attempt %s/3 failed for session %s at %s: %s",
+                    attempt,
+                    self.session.id,
+                    session_workspace_path,
+                    exc,
+                )
+                if attempt < 3:
+                    await asyncio.sleep(0.5)
+
+        logger.error(
+            "Failed to prepare session workspace root %s for session %s after 3 attempts",
+            session_workspace_path,
+            self.session.id,
+            exc_info=last_exc,
+        )
+        return False
 
     async def _set_run_status(self, status: str) -> None:
         self.session.run_status = status

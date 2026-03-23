@@ -5,12 +5,22 @@ const AGENT_URL = process.env.AGENT_URL || "http://localhost:8000";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
+function resolveBackendPath(path: string[]): string {
+  if (path[0] === "api" && path[1] === "v1") {
+    return `/${path.join("/")}`;
+  }
+  if (path[0] === "v1") {
+    return `/api/${path.join("/")}`;
+  }
+  return `/${path.join("/")}`;
+}
+
 async function handler(
   request: NextRequest,
   { params }: { params: Promise<{ path: string[] }> }
 ) {
   const { path } = await params;
-  const backendPath = "/" + path.join("/");
+  const backendPath = resolveBackendPath(path);
   const target = `${AGENT_URL}${backendPath}${request.nextUrl.search}`;
 
   const headers = new Headers(request.headers);

@@ -95,6 +95,7 @@ class Settings(BaseSettings):
     sandbox_create_retries: int = 3
     sandbox_create_retry_backoff_seconds: float = 2.0
     sandbox_create_retry_max_seconds: float = 10.0
+    agent_workspace_root: str = "/home/user/CoComputer/Workspaces"
 
     # Multi-agent orchestration
     use_multi_agent: bool = True

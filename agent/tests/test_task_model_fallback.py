@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import sys
 from pathlib import Path
 from types import SimpleNamespace
@@ -113,11 +114,11 @@ class TaskModelFallbackTests(IsolatedAsyncioTestCase):
         self.assertEqual(get_runtime_config().gemini_agent_model, "gemini-3-flash-preview")
         self.assertTrue(ws.send_json.await_count >= 1)
 
-    async def test_vertex_session_does_not_use_api_key_fallback_chain(self) -> None:
+    async def test_vertex_session_uses_fallback_chain_when_configured(self) -> None:
         config = _runtime_config(
             provider="vertex",
             primary="vertex-default-model",
-            fallbacks=("should-not-run",),
+            fallbacks=("vertex-fallback-model",),
         )
         session = _session(config)
         ws = SimpleNamespace(send_json=AsyncMock())
@@ -126,17 +127,22 @@ class TaskModelFallbackTests(IsolatedAsyncioTestCase):
         run_calls: list[str] = []
         first_session_service = object()
         first_runner = object()
+        second_runner = object()
 
         def fake_create_multi_agent(runtime_config, task_model_override=None):
             created_models.append(runtime_config.gemini_agent_model)
             return MagicMock(name=f"agent-{runtime_config.gemini_agent_model}")
 
         def fake_create_runner(agent, session_service=None):
-            return first_runner, first_session_service if session_service is None else session_service
+            if session_service is None:
+                return first_runner, first_session_service
+            return second_runner, session_service
 
         async def fake_run_agent_turn(**kwargs):
             run_calls.append(kwargs["runtime_config"].gemini_agent_model)
-            raise RuntimeError("429 quota exceeded")
+            if len(run_calls) == 1:
+                raise RuntimeError("429 quota exceeded")
+            return AgentTurnResult(response="ok", usage_records=[])
 
         with (
             patch.object(orchestrator_module, "create_multi_agent", side_effect=fake_create_multi_agent),
@@ -144,11 +150,65 @@ class TaskModelFallbackTests(IsolatedAsyncioTestCase):
             patch.object(orchestrator_module, "run_agent_turn", side_effect=fake_run_agent_turn),
         ):
             orchestrator = orchestrator_module.NexusOrchestrator(session=session, ws=ws)
-            orchestrator._RATE_LIMIT_MAX_RETRIES = 2
+            orchestrator._RATE_LIMIT_MAX_RETRIES = 1
             orchestrator._RATE_LIMIT_BASE_WAIT = 0
             orchestrator._adk_session_id = "adk-session"
-            with self.assertRaises(RuntimeError):
-                await orchestrator._run_agent_with_retry("run the task")
+            result = await orchestrator._run_agent_with_retry("run the task")
 
-        self.assertEqual(run_calls, ["vertex-default-model", "vertex-default-model"])
-        self.assertEqual(created_models, ["vertex-default-model"])
+        self.assertEqual(result.response, "ok")
+        self.assertEqual(run_calls, ["vertex-default-model", "vertex-fallback-model"])
+        self.assertEqual(created_models, ["vertex-default-model", "vertex-fallback-model"])
+
+    async def test_unexpected_exception_returns_error_result(self) -> None:
+        config = _runtime_config(
+            provider="apiKey",
+            primary="gemini-3.1-pro-preview",
+            fallbacks=("gemini-3-flash-preview",),
+        )
+        session = _session(config)
+        ws = SimpleNamespace(send_json=AsyncMock())
+
+        async def fake_run_agent_turn(**kwargs):
+            raise ValueError("item_index must be at least 1")
+
+        with (
+            patch.object(orchestrator_module, "run_agent_turn", side_effect=fake_run_agent_turn),
+        ):
+            orchestrator = orchestrator_module.NexusOrchestrator(session=session, ws=ws)
+            orchestrator._adk_session_id = "adk-session"
+            result = await orchestrator._run_agent_with_retry("run the task")
+
+        self.assertIsNone(result.response)
+        self.assertEqual(result.usage_records, [])
+        self.assertEqual(result.error, "item_index must be at least 1")
+
+
+class WebsocketSendLockTests(IsolatedAsyncioTestCase):
+    async def test_send_json_serializes_concurrent_writes(self) -> None:
+        class ConcurrentUnsafeWebSocket:
+            def __init__(self) -> None:
+                self.in_flight = 0
+                self.sent: list[dict[str, str]] = []
+
+            async def send_json(self, data: dict[str, str]) -> None:
+                self.in_flight += 1
+                if self.in_flight > 1:
+                    self.in_flight -= 1
+                    raise RuntimeError("concurrent send")
+                await asyncio.sleep(0.01)
+                self.sent.append(data)
+                self.in_flight -= 1
+
+        orchestrator = orchestrator_module.NexusOrchestrator.__new__(orchestrator_module.NexusOrchestrator)
+        orchestrator.ws = ConcurrentUnsafeWebSocket()
+        orchestrator._ws_send_lock = asyncio.Lock()
+
+        await asyncio.gather(
+            orchestrator._send_json({"type": "step_started"}),
+            orchestrator._send_json({"type": "agent_tool_call"}),
+        )
+
+        self.assertEqual(
+            [item["type"] for item in orchestrator.ws.sent],
+            ["step_started", "agent_tool_call"],
+        )

@@ -1,5 +1,7 @@
 "use client";
 
+import { StreamIframe } from "@/components/stream-iframe";
+
 type Props = {
   streamUrl: string | null;
 };
@@ -58,7 +60,7 @@ export function DesktopPanel({ streamUrl }: Props) {
         </span>
       </div>
 
-      <iframe
+      <StreamIframe
         src={streamUrl}
         className="w-full h-full border-0 grayscale-[0.15] contrast-[1.1] brightness-[1.05]"
         allow="clipboard-read; clipboard-write"

@@ -275,7 +275,10 @@ def resolve_session_runtime_config(
         )
     else:
         agent_model = settings.gemini_agent_model
-        agent_fallback_models = ()
+        agent_fallback_models = _parse_model_list(
+            settings.gemini_api_key_agent_fallback_models,
+            exclude=agent_model,
+        )
 
     return SessionRuntimeConfig(
         e2b_api_key=e2b_api_key,

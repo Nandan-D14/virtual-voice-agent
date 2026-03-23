@@ -11,7 +11,7 @@ from nexus import runtime_config as runtime_config_module
 
 
 class RuntimeConfigModelSelectionTests(TestCase):
-    def test_vertex_sessions_keep_default_task_model(self) -> None:
+    def test_vertex_sessions_keep_default_task_model_and_gain_fallback_chain(self) -> None:
         user_settings = {
             "byok": {
                 "e2bApiKeyEncrypted": "enc-e2b",
@@ -45,7 +45,10 @@ class RuntimeConfigModelSelectionTests(TestCase):
         self.assertEqual(config.gemini_provider, "vertex")
         self.assertEqual(config.google_project_id, "vertex-project")
         self.assertEqual(config.gemini_agent_model, "vertex-default-model")
-        self.assertEqual(config.gemini_agent_fallback_models, ())
+        self.assertEqual(
+            config.gemini_agent_fallback_models,
+            ("api-fallback-a", "api-fallback-b"),
+        )
         self.assertEqual(config.gemini_live_model, "live-model")
         self.assertEqual(config.gemini_vision_model, "vision-model")
         self.assertEqual(config.gemini_vision_fallback_models, ("vision-fallback",))

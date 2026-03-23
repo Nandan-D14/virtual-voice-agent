@@ -13,6 +13,7 @@ import {
 import { usePathname, useRouter } from "next/navigation";
 import { ArrowUpRight, MonitorSmartphone, X } from "lucide-react";
 
+import { StreamIframe } from "@/components/stream-iframe";
 import { useToast } from "@/components/toast-provider";
 import { useAuth } from "@/lib/auth-context";
 import { useSession } from "@/lib/use-session";
@@ -211,7 +212,7 @@ function LiveDesktopPiP({
           >
             <div className="relative aspect-[16/10] overflow-hidden">
               {session.streamUrl ? (
-                <iframe
+                <StreamIframe
                   src={session.streamUrl}
                   className="h-full w-full border-0 pointer-events-none"
                   allow="clipboard-read; clipboard-write"

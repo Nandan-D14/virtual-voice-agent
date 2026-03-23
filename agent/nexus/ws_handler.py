@@ -51,13 +51,29 @@ async def handle_websocket(
     5. Clean up on disconnect
     """
     await ws.accept()
-    await ws.send_json({"type": "sandbox_status", "status": "connecting"})
+    send_lock = asyncio.Lock()
+    setattr(ws, "_cocomputer_send_lock", send_lock)
+
+    async def _safe_send_json(data: dict) -> bool:
+        try:
+            async with send_lock:
+                await ws.send_json(data)
+            return True
+        except Exception:
+            logger.warning(
+                "Failed to send WS handler message: %s",
+                data.get("type"),
+                exc_info=True,
+            )
+            return False
+
+    await _safe_send_json({"type": "sandbox_status", "status": "connecting"})
 
     try:
         await session_manager.activate_session(session.id)
     except Exception as exc:
         logger.exception("Failed to activate session %s", session.id)
-        await ws.send_json(
+        await _safe_send_json(
             {
                 "type": "error",
                 "code": "SANDBOX_INIT_ERROR",
@@ -83,9 +99,39 @@ async def handle_websocket(
         # Keep background tasks alive so they aren't garbage-collected
         _bg_tasks: set[asyncio.Task] = set()
 
-        def _track(t: asyncio.Task) -> None:
+        def _surface_task_exception(task: asyncio.Task, *, label: str) -> None:
+            try:
+                exc = task.exception()
+            except asyncio.CancelledError:
+                return
+
+            if exc is None:
+                return
+
+            logger.error("%s failed for session %s", label, session.id, exc_info=exc)
+
+            async def _notify() -> None:
+                try:
+                    await _safe_send_json(
+                        {
+                            "type": "error",
+                            "code": "BACKGROUND_TASK_ERROR",
+                            "message": f"{label} failed: {exc}",
+                        }
+                    )
+                except Exception:
+                    logger.debug(
+                        "Failed to surface background task error for session %s",
+                        session.id,
+                        exc_info=True,
+                    )
+
+            asyncio.create_task(_notify())
+
+        def _track(t: asyncio.Task, *, label: str) -> None:
             _bg_tasks.add(t)
             t.add_done_callback(_bg_tasks.discard)
+            t.add_done_callback(lambda task: _surface_task_exception(task, label=label))
 
         # Main loop: frontend → agent/voice
         try:
@@ -93,6 +139,7 @@ async def handle_websocket(
                 message = await ws.receive()
 
                 if message.get("type") == "websocket.disconnect":
+                    orchestrator.mark_ws_disconnected()
                     break
 
                 # Binary frame = raw PCM audio from mic
@@ -110,7 +157,7 @@ async def handle_websocket(
                     msg_type = data.get("type", "")
                     if msg_type in {"text_input", "analyze_screen", "start_voice"}:
                         if not action_rate_limiter.is_allowed(session.owner_id):
-                            await ws.send_json(
+                            await _safe_send_json(
                                 {
                                     "type": "error",
                                     "code": "RATE_LIMITED",
@@ -123,13 +170,22 @@ async def handle_websocket(
                         text = data.get("text", "").strip()
                         if text:
                             # Run as background task so stop_agent can interrupt
-                            _track(asyncio.create_task(orchestrator.handle_text_input(text)))
+                            _track(
+                                asyncio.create_task(orchestrator.handle_text_input(text)),
+                                label="handle_text_input",
+                            )
 
                     elif msg_type == "start_voice":
-                        _track(asyncio.create_task(orchestrator.start_voice()))
+                        _track(
+                            asyncio.create_task(orchestrator.start_voice()),
+                            label="start_voice",
+                        )
 
                     elif msg_type == "analyze_screen":
-                        _track(asyncio.create_task(orchestrator.handle_analyze_screen()))
+                        _track(
+                            asyncio.create_task(orchestrator.handle_analyze_screen()),
+                            label="handle_analyze_screen",
+                        )
 
                     elif msg_type == "stop_agent":
                         await orchestrator.stop_agent()
@@ -141,7 +197,7 @@ async def handle_websocket(
                             orchestrator.handle_permission_response(task_id, approved)
 
                     elif msg_type == "ping":
-                        await ws.send_json({"type": "pong"})
+                        await _safe_send_json({"type": "pong"})
                         session.touch()
                         # Keep sandbox alive on every ping from frontend
                         try:
@@ -153,18 +209,24 @@ async def handle_websocket(
                         logger.debug("Unknown message type: %s", msg_type)
 
         except WebSocketDisconnect:
+            orchestrator.mark_ws_disconnected()
             logger.info("Client disconnected from session %s", session.id)
         finally:
+            orchestrator.mark_ws_disconnected()
             voice_task.cancel()
+            for task in list(_bg_tasks):
+                task.cancel()
             try:
                 await voice_task
             except asyncio.CancelledError:
                 pass
+            if _bg_tasks:
+                await asyncio.gather(*_bg_tasks, return_exceptions=True)
 
     except Exception:
         logger.exception("WebSocket handler error for session %s", session.id)
         try:
-            await ws.send_json({
+            await _safe_send_json({
                 "type": "error",
                 "code": "WS_ERROR",
                 "message": "Server error. Please reconnect.",

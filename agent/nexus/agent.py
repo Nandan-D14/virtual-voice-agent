@@ -33,6 +33,7 @@ logger = logging.getLogger(__name__)
 class AgentTurnResult:
     response: str | None
     usage_records: list[TokenUsageRecord]
+    error: str | None = None
 
 
 def _get_model(runtime_config: SessionRuntimeConfig):
@@ -96,13 +97,39 @@ def create_multi_agent(
         create_orchestrator_agent,
     )
     from nexus.tools.bg_task import request_background_task
+    from nexus.tools.workspace import (
+        prepare_task_workspace,
+        write_todo_list,
+        update_todo_item,
+        write_workspace_file,
+        read_workspace_file,
+        list_workspace_files,
+    )
+
+    orchestrator_tools = [
+        prepare_task_workspace,
+        write_todo_list,
+        update_todo_item,
+        read_workspace_file,
+        list_workspace_files,
+        request_background_task,
+    ]
+    deepresearcher_tools = [
+        prepare_task_workspace,
+        write_todo_list,
+        update_todo_item,
+        write_workspace_file,
+        read_workspace_file,
+        list_workspace_files,
+        request_background_task,
+    ]
 
     computer = create_computer_agent(effective_runtime_config)
     browser = create_browser_agent(effective_runtime_config)
     code = create_code_agent(effective_runtime_config)
     deepresearcher = create_deepresearcher_agent(
         effective_runtime_config,
-        extra_tools=[request_background_task],
+        extra_tools=deepresearcher_tools,
     )
 
     orchestrator = create_orchestrator_agent(
@@ -111,7 +138,7 @@ def create_multi_agent(
         browser_agent=browser,
         code_agent=code,
         deepresearcher_agent=deepresearcher,
-        extra_tools=[request_background_task],
+        extra_tools=orchestrator_tools,
     )
     logger.info(
         "Multi-agent orchestrator created with sub-agents: computer, browser, code, deepresearcher"
