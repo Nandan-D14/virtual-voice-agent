@@ -1,4 +1,4 @@
-name: 'Build and Deploy Nexus to Cloud Run'
+name: 'Build and Deploy  Co-Computer to Cloud Run'
 
 on:
   push:
@@ -99,7 +99,7 @@ jobs:
             --project="${{ env.PROJECT_ID }}" \
             --repository-format=docker \
             --location="${{ env.REGION }}" \
-            --description="NEXUS container images" 2>/dev/null || true
+            --description=" Co-Computer container images" 2>/dev/null || true
 
       - name: 'Build Agent Image (Cloud Build)'
         run: |-

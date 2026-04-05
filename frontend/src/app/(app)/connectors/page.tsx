@@ -121,7 +121,7 @@ export default function ConnectorsPage() {
             Connectors
           </h1>
           <p className="text-sm text-zinc-500 max-w-2xl">
-            Seamlessly integrate Nexus with your favorite tools and workflows. 
+            Seamlessly integrate co-computer with your favorite tools and workflows. 
             Native connectors allow the agent to securely access your data across different platforms.
           </p>
         </div>

@@ -1,7 +1,7 @@
 [project]
 name = "nexus-agent"
 version = "0.1.0"
-description = "NEXUS - AI agent with full Linux desktop control"
+description = " Co-Computer - AI agent with full Linux desktop control"
 requires-python = ">=3.11"
 dependencies = [
     "google-adk>=1.20.0",

@@ -64,7 +64,7 @@ AGENT_ENV_VARS=(
 )
 AGENT_ENV_VARS_CSV="$(IFS=,; printf '%s' "${AGENT_ENV_VARS[*]}")"
 
-echo "=== NEXUS Deploy to Cloud Run ==="
+echo "=== Co-Computer Deploy to Cloud Run ==="
 echo "Project: ${PROJECT_ID}"
 echo "Region:  ${REGION}"
 echo ""
@@ -74,7 +74,7 @@ gcloud artifacts repositories create nexus \
   --project="${PROJECT_ID}" \
   --repository-format=docker \
   --location="${REGION}" \
-  --description="NEXUS container images" 2>/dev/null || true
+  --description="Co-Computer container images" 2>/dev/null || true
 
 echo "Building agent image..."
 gcloud builds submit \
