@@ -79,6 +79,7 @@ export type WsMessage =
   | { type: "permission_request"; task_id: string; description: string; estimated_seconds: number; agent: string }
   | { type: "bg_task_progress"; task_id: string; progress: number; message: string }
   | { type: "bg_task_complete"; task_id: string; success: boolean; result: string }
+  | { type: "todo_list_updated"; items: Array<{ title: string; status: "pending" | "in_progress" | "done"; note?: string }> }
   | { type: "voice_status"; status: string; message: string }
   | ({ type: "quota_update" } & PlanQuota)
   | {
@@ -106,7 +107,8 @@ export type WsMessage =
       packet: ContextPacket;
     }
   | { type: "error"; code: string; message: string; detail?: string }
-  | { type: "pong" };
+  | { type: "pong" }
+  | { type: "ui_action"; action: "switch_tab"; target: "workflow" | "desktop"; reason?: string };
 
 // ── Client -> Server (Text frames) ─────────────────────────────────
 
@@ -347,6 +349,7 @@ export type AgentToolResultMessage = Extract<WsMessage, { type: "agent_tool_resu
 export type AgentScreenshotMessage = Extract<WsMessage, { type: "agent_screenshot" }>;
 export type AgentCompleteMessage = Extract<WsMessage, { type: "agent_complete" }>;
 export type AgentDelegationMessage = Extract<WsMessage, { type: "agent_delegation" }>;
+export type UiActionMessage = Extract<WsMessage, { type: "ui_action" }>;
 export type PermissionRequestMessage = Extract<WsMessage, { type: "permission_request" }>;
 export type BgTaskProgressMessage = Extract<WsMessage, { type: "bg_task_progress" }>;
 export type BgTaskCompleteMessage = Extract<WsMessage, { type: "bg_task_complete" }>;

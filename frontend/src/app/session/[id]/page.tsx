@@ -22,7 +22,10 @@ import { RunLogPanel } from "@/components/run-log-panel";
 import { SessionNavSidebar } from "@/components/session-nav-sidebar";
 import { WorkflowTemplateEditorModal } from "@/components/workflow-template-editor-modal";
 import { UnifiedChatPanel } from "@/components/unified-chat-panel";
+import { TodoList } from "@/components/todo-list";
 import { useLiveDesktop } from "@/components/live-desktop-provider";
+import { WorkflowDesktopContainer } from "@/components/workflow-desktop-container";
+import type { WorkflowRun } from "@/components/agent-workflow-panel";
 import { useAuth } from "@/lib/auth-context";
 import { AudioPlayer } from "@/lib/audio-playback";
 import type {
@@ -306,6 +309,8 @@ export default function SessionPage() {
   const [sessionData, setSessionData] = useState<SessionData | null>(null);
   const [runInfo, setRunInfo] = useState<RunInfo | null>(null);
   const [runSteps, setRunSteps] = useState<RunStep[]>([]);
+  const [workflowRun, setWorkflowRun] = useState<WorkflowRun | null>(null);
+  const [forcedTab, setForcedTab] = useState<"workflow" | "desktop" | null>(null);
   const [runArtifacts, setRunArtifacts] = useState<RunArtifact[]>([]);
   const [viewMode, setViewMode] = useState<"live" | "archived">("live");
   const [activeSurface, setActiveSurface] = useState<SessionSurface>("conversation");
@@ -318,6 +323,7 @@ export default function SessionPage() {
   const [availableConnectors, setAvailableConnectors] = useState<SessionConnector[]>([SYSTEM_CONNECTOR]);
   const [selectedConnectorIds, setSelectedConnectorIds] = useState<string[]>([]);
   const [uploadedFiles, setUploadedFiles] = useState<UploadedInputFile[]>([]);
+  const [todoItems, setTodoItems] = useState<Array<{ title: string; status: "pending" | "in_progress" | "done"; note?: string }>>([]);
   const [isConnectorMenuOpen, setIsConnectorMenuOpen] = useState(false);
   const [isUploadingFile, setIsUploadingFile] = useState(false);
   const [hasActivatedSession, setHasActivatedSession] = useState(false);
@@ -725,6 +731,10 @@ export default function SessionPage() {
         ]);
         break;
 
+      case "todo_list_updated":
+        setTodoItems(msg.items);
+        break;
+
       case "error":
         setPageError(msg.detail || msg.message);
         setAgentStatus("");
@@ -745,6 +755,12 @@ export default function SessionPage() {
         break;
 
       case "pong":
+        break;
+
+      case "ui_action":
+        if (msg.action === "switch_tab") {
+          setForcedTab(msg.target);
+        }
         break;
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -783,6 +799,42 @@ export default function SessionPage() {
       stopMic();
     }
   }, [isRecording, stopMic, voiceStatus]);
+
+  /* ---- Convert runInfo/runSteps to workflowRun ---- */
+  useEffect(() => {
+    if (!runInfo) {
+      setWorkflowRun(null);
+      return;
+    }
+
+    const statusMap: Record<string, "pending" | "running" | "completed" | "failed"> = {
+      "pending": "pending",
+      "running": "running",
+      "completed": "completed",
+      "failed": "failed",
+      "success": "completed",
+      "error": "failed",
+    };
+
+    setWorkflowRun({
+      run_id: runInfo.run_id,
+      title: runInfo.title || "Agent Workflow",
+      status: statusMap[runInfo.status] || "running",
+      steps: runSteps.map((step) => ({
+        step_id: step.step_id,
+        type: step.type as "thinking" | "tool_call" | "tool_result" | "observation" | "screenshot" | "error" | "completion",
+        status: statusMap[step.status] || "pending",
+        title: step.title || `${step.type} step`,
+        detail: step.detail || "",
+        created_at: step.created_at,
+        command: step.command,
+        args: step.args,
+        output: step.output,
+        error: step.error,
+        image_b64: step.image_b64,
+      })),
+    });
+  }, [runInfo, runSteps]);
 
   /* ---- Session lifecycle ---- */
   useEffect(() => {
@@ -1856,6 +1908,7 @@ export default function SessionPage() {
                 {viewMode === "live" ? (
                   <div className="px-4 pb-6 pt-2 shrink-0">
                     <div className="mx-auto w-full max-w-4xl relative">
+                      <TodoList items={todoItems} />
                       {uploadedFiles.length > 0 ? (
                         <div className="mb-3 flex flex-wrap gap-2">
                           {uploadedFiles.map((file) => (
@@ -2001,29 +2054,16 @@ export default function SessionPage() {
                 <div className="flex-[2] min-w-0 flex overflow-hidden transition-all duration-300 ease-in-out">
                   <div className="flex-1 flex flex-col overflow-hidden p-3 bg-zinc-50 dark:bg-[#151515]">
                     <div className="w-full h-full xl:max-w-7xl mx-auto rounded-xl overflow-hidden border border-zinc-200 dark:border-zinc-800/80 shadow-2xl relative">
-                      <DesktopPanel streamUrl={streamUrl} analysis={latestAnalysis} />
-                      
-                      {/* ── Overlay: blocks user interaction while agent is working ── */}
-                      {(phase === "thinking" || phase === "acting") && (
-                        <>
-                          <div className="absolute inset-0 z-10 cursor-not-allowed" />
-                          <div className="absolute top-4 right-4 z-20 flex items-center gap-3 px-4 py-2.5 rounded-xl bg-white/85 dark:bg-black/85 border border-black/10 dark:border-white/10 backdrop-blur-sm shadow-2xl">
-                            <span className="text-xs font-medium text-foreground dark:text-zinc-300 flex items-center gap-2">
-                              <span className={`w-2 h-2 rounded-full shrink-0 animate-pulse ${
-                                phase === "thinking" ? "bg-cyan-400" : "bg-amber-400"
-                              }`} />
-                              {agentStatus || (phase === "thinking" ? "Thinking..." : "Acting...")}
-                            </span>
-                            <div className="w-px h-4 bg-black/10 dark:bg-white/10 mx-1" />
-                            <button
-                              onClick={handleStopAgent}
-                              className="text-xs font-bold text-red-500 hover:text-red-400 uppercase tracking-widest transition-colors"
-                            >
-                              Stop
-                            </button>
-                          </div>
-                        </>
-                      )}
+                      <WorkflowDesktopContainer
+                        workflowRun={workflowRun}
+                        streamUrl={streamUrl}
+                        analysis={latestAnalysis}
+                        forcedTab={forcedTab}
+                        onForcedTabAck={() => setForcedTab(null)}
+                        phase={phase}
+                        agentStatus={agentStatus}
+                        onStopAgent={handleStopAgent}
+                      />
                     </div>
                   </div>
                 </div>
