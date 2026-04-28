@@ -24,6 +24,7 @@ from nexus.tools._context import (
     set_run_id,
     set_runtime_config,
     set_sandbox,
+    set_send_json,
     set_session_id,
     set_workspace_path,
 )
@@ -130,6 +131,7 @@ class NexusOrchestrator:
         set_session_id(self.session.id)
         set_owner_id(self.session.owner_id)
         set_history_repository(self.history_repository)
+        set_send_json(self._send_json)
         self._bind_workspace_context()
         workspace_root_ready = await self._ensure_session_workspace_root()
         if not workspace_root_ready:

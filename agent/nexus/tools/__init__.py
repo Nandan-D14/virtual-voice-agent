@@ -35,6 +35,7 @@ from nexus.tools.integrations import (
     github_create_issue,
     github_summarize_pr,
 )
+from nexus.tools.ui_control import show_desktop_panel, show_workflow_panel
 
 ALL_TOOLS = [
     prepare_task_workspace,
@@ -67,4 +68,6 @@ ALL_TOOLS = [
     open_browser,
     request_background_task,
     schedule_monitoring_task,
+    show_desktop_panel,
+    show_workflow_panel,
 ]

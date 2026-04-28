@@ -16,6 +16,7 @@ if TYPE_CHECKING:
     from nexus.sandbox import SandboxManager
 
 ArtifactCallback = Callable[[dict[str, Any]], Awaitable[None] | None]
+SendJsonCallback = Callable[[dict[str, Any]], Awaitable[None]]
 
 _current_sandbox: contextvars.ContextVar["SandboxManager"] = contextvars.ContextVar(
     "_current_sandbox"
@@ -40,6 +41,9 @@ _current_owner_id: contextvars.ContextVar[str] = contextvars.ContextVar(
 )
 _current_history_repository: contextvars.ContextVar[Optional["FirestoreHistoryRepository"]] = (
     contextvars.ContextVar("_current_history_repository", default=None)
+)
+_current_send_json: contextvars.ContextVar[Optional["SendJsonCallback"]] = (
+    contextvars.ContextVar("_current_send_json", default=None)
 )
 
 
@@ -152,3 +156,13 @@ def set_history_repository(
 def get_history_repository() -> Optional["FirestoreHistoryRepository"]:
     """Retrieve the Firestore repository for connector tools."""
     return _current_history_repository.get()
+
+
+def set_send_json(callback: Optional["SendJsonCallback"]) -> contextvars.Token:
+    """Set the WebSocket send_json callback for UI control tools."""
+    return _current_send_json.set(callback)
+
+
+def get_send_json() -> Optional["SendJsonCallback"]:
+    """Retrieve the WebSocket send_json callback for UI control tools."""
+    return _current_send_json.get()
