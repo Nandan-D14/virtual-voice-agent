@@ -98,13 +98,13 @@ export default function ConnectorsPage() {
       if (!catalogResponse.ok) throw new Error(await parseApiError(catalogResponse));
       if (!connectionsResponse.ok) throw new Error(await parseApiError(connectionsResponse));
       
-      const catalogBody = await catalogResponse.json();
-      const connectionsBody = await connectionsResponse.json();
+      const catalogBody = (await catalogResponse.json()) as { catalog?: CatalogItem[] };
+      const connectionsBody = (await connectionsResponse.json()) as { connections?: IntegrationConnection[] };
       
       const loadedCatalog = catalogBody.catalog ?? [];
       const loadedConnections = connectionsBody.connections ?? [];
       
-      const driveCat = loadedCatalog.find((c: any) => c.provider === "google_drive");
+      const driveCat = loadedCatalog.find((c) => c.provider === "google_drive");
       if (
         driveCat
         && driveCat.status === "connected"

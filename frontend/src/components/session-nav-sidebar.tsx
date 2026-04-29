@@ -3,8 +3,8 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
-import { LogOut, Menu, X, PlusCircle, LayoutDashboard, Settings, History, ChevronLeft, ChevronRight, Plus, PanelLeft, Cpu, Search } from "lucide-react";
-import { SIDEBAR_ACTIONS, NAV_LINKS } from "@/lib/navigation";
+import { LogOut, Menu, X, ChevronRight, Plus, Search, type LucideIcon } from "lucide-react";
+import { NAV_LINKS } from "@/lib/navigation";
 import { useAuth } from "@/lib/auth-context";
 import { authenticatedFetch } from "@/lib/api-client";
 import { DEFAULT_PLAN_QUOTA, type PlanQuota } from "@/lib/message-types";
@@ -15,7 +15,7 @@ import { SearchModal } from "./search-modal";
 /*  Nav items                                                          */
 /* ------------------------------------------------------------------ */
 
-const NAV_ITEMS = NAV_LINKS as unknown as ReadonlyArray<{ href: string; icon: any; label?: string; name?: string }>;
+const NAV_ITEMS = NAV_LINKS as ReadonlyArray<{ href: string; icon: LucideIcon; label?: string; name?: string }>;
 
 /* ------------------------------------------------------------------ */
 /*  Component                                                          */

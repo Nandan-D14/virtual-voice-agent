@@ -1,13 +1,29 @@
 "use client";
 
 import { useState } from "react";
-import { ChevronRight, Moon, Sun, Bell, Lock, LogOut, HelpCircle } from "lucide-react";
+import { ChevronRight, Moon, Sun, Bell, Lock, LogOut, HelpCircle, type LucideIcon } from "lucide-react";
+
+type SettingsItem = {
+  label: string;
+  description: string;
+  icon: LucideIcon;
+  action: () => void;
+  href?: string;
+  toggle?: boolean;
+  active?: boolean;
+  danger?: boolean;
+};
+
+type SettingsSection = {
+  title: string;
+  items: SettingsItem[];
+};
 
 export default function SettingsPage() {
   const [darkMode, setDarkMode] = useState(true);
   const [notifications, setNotifications] = useState(true);
 
-  const settingsSections = [
+  const settingsSections: SettingsSection[] = [
     {
       title: "Appearance",
       items: [

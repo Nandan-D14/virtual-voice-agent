@@ -4,7 +4,7 @@ import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { AgentWorkflowPanel, WorkflowRun } from "./agent-workflow-panel";
 import { DesktopPanel } from "./desktop-panel";
-import { Activity, Monitor, Loader2, Sparkles } from "lucide-react";
+import { Activity, Monitor, Loader2 } from "lucide-react";
 
 type Tab = "workflow" | "desktop";
 
@@ -23,7 +23,7 @@ type Props = {
   onTabChange?: (tab: Tab) => void;
   forcedTab?: Tab | null;
   onForcedTabAck?: () => void;
-  phase?: "idle" | "thinking" | "acting" | "done";
+  phase?: "idle" | "listening" | "thinking" | "acting" | "done";
   agentStatus?: string;
   onStopAgent?: () => void;
 };
@@ -41,26 +41,28 @@ export function WorkflowDesktopContainer({
   onStopAgent,
 }: Props) {
   const [activeTab, setActiveTab] = useState<Tab>(defaultTab);
-  const [agentReason, setAgentReason] = useState<string | null>(null);
+
+  if (forcedTab && forcedTab !== activeTab) {
+    setActiveTab(forcedTab);
+  }
 
   useEffect(() => {
     if (forcedTab) {
-      setActiveTab(forcedTab);
-      if (forcedTab === "desktop" && workflowRun?.status === "running") {
-        setAgentReason("Agent requested desktop view");
-      }
       onForcedTabAck?.();
     }
-  }, [forcedTab, onForcedTabAck, workflowRun?.status]);
+  }, [forcedTab, onForcedTabAck]);
 
   const handleTabChange = (tab: Tab) => {
     setActiveTab(tab);
-    setAgentReason(null);
     onTabChange?.(tab);
   };
 
   const isStreamActive = !!streamUrl;
   const activeSteps = workflowRun?.steps.filter(s => s.status === "in_progress").length || 0;
+  const agentReason =
+    activeTab === "desktop" && forcedTab === "desktop" && workflowRun?.status === "running"
+      ? "Agent requested desktop view"
+      : null;
 
   return (
     <div className="h-full flex flex-col bg-[#0a0a0c] rounded-xl border border-zinc-800 overflow-hidden">

@@ -2,17 +2,17 @@
 
 import { useAuth } from "@/lib/auth-context";
 import { Mail, Monitor, Moon, Sun } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useSyncExternalStore } from "react";
 import { useTheme } from "next-themes";
 
 export default function ProfileSettingsPage() {
   const { user } = useAuth();
   const { theme, setTheme } = useTheme();
-  const [mounted, setMounted] = useState(false);
-
-  useEffect(() => {
-    setMounted(true);
-  }, []);
+  const mounted = useSyncExternalStore(
+    () => () => {},
+    () => true,
+    () => false,
+  );
 
   if (!mounted) return null;
 

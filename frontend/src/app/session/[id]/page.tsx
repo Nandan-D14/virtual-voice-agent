@@ -27,6 +27,7 @@ import { TodoList } from "@/components/todo-list";
 import { useLiveDesktop } from "@/components/live-desktop-provider";
 import { WorkflowDesktopContainer } from "@/components/workflow-desktop-container";
 import type { WorkflowRun } from "@/components/agent-workflow-panel";
+import type { StepType } from "@/components/workflow-step";
 import { useAuth } from "@/lib/auth-context";
 import { AudioPlayer } from "@/lib/audio-playback";
 import type {
@@ -343,7 +344,7 @@ export default function SessionPage() {
     "available" | "unavailable" | "connecting" | "connected" | "reconnecting" | "disconnected"
   >("disconnected");
   const audioPlayer = useRef(new AudioPlayer());
-  const inputRef = useRef<HTMLInputElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const connectorMenuRef = useRef<HTMLDivElement>(null);
   const landingInputRef = useRef<HTMLTextAreaElement>(null);
@@ -809,7 +810,7 @@ export default function SessionPage() {
       return;
     }
 
-    const statusMap: Record<string, "pending" | "running" | "completed" | "failed"> = {
+    const runStatusMap: Record<string, "pending" | "running" | "completed" | "failed"> = {
       "pending": "pending",
       "running": "running",
       "completed": "completed",
@@ -817,24 +818,56 @@ export default function SessionPage() {
       "success": "completed",
       "error": "failed",
     };
+    const stepStatusMap: Record<string, "pending" | "in_progress" | "completed" | "failed"> = {
+      "pending": "pending",
+      "running": "in_progress",
+      "in_progress": "in_progress",
+      "completed": "completed",
+      "failed": "failed",
+      "success": "completed",
+      "error": "failed",
+    };
+
+    const toWorkflowStepType = (stepType: string): StepType => {
+      if (
+        stepType === "thinking" ||
+        stepType === "tool_call" ||
+        stepType === "tool_result" ||
+        stepType === "screenshot" ||
+        stepType === "file_created" ||
+        stepType === "browser" ||
+        stepType === "error" ||
+        stepType === "terminal" ||
+        stepType === "observation" ||
+        stepType === "completion"
+      ) {
+        return stepType;
+      }
+      return "observation";
+    };
 
     setWorkflowRun({
       run_id: runInfo.run_id,
       title: runInfo.title || "Agent Workflow",
-      status: statusMap[runInfo.status] || "running",
-      steps: runSteps.map((step) => ({
-        step_id: step.step_id,
-        type: step.type as "thinking" | "tool_call" | "tool_result" | "observation" | "screenshot" | "error" | "completion",
-        status: statusMap[step.status] || "pending",
-        title: step.title || `${step.type} step`,
-        detail: step.detail || "",
-        created_at: step.created_at,
-        command: step.command,
-        args: step.args,
-        output: step.output,
-        error: step.error,
-        image_b64: step.image_b64,
-      })),
+      status: runStatusMap[runInfo.status] || "running",
+      steps: runSteps.map((step) => {
+        const metadata = step.metadata ?? {};
+        const args = metadata.args;
+
+        return {
+          step_id: step.step_id,
+          step_type: toWorkflowStepType(step.step_type),
+          status: stepStatusMap[step.status] || "pending",
+          title: step.title || `${step.step_type} step`,
+          detail: step.detail || "",
+          created_at: step.created_at ?? new Date().toISOString(),
+          command: typeof metadata.command === "string" ? metadata.command : undefined,
+          args: args && typeof args === "object" && !Array.isArray(args) ? args as Record<string, unknown> : undefined,
+          output: typeof metadata.output === "string" ? metadata.output : undefined,
+          error: step.error ?? undefined,
+          image_b64: typeof metadata.image_b64 === "string" ? metadata.image_b64 : undefined,
+        };
+      }),
     });
   }, [runInfo, runSteps]);
 
@@ -1746,7 +1779,7 @@ export default function SessionPage() {
                                 
                                 {availableConnectors.filter(c => c.name.toLowerCase().includes(connectorSearch.toLowerCase())).length === 0 && (
                                   <div className="py-8 text-center text-xs text-zinc-600 font-medium">
-                                    No tools found for "{connectorSearch}"
+                                    No tools found for &quot;{connectorSearch}&quot;
                                   </div>
                                 )}
                               </div>
@@ -2112,7 +2145,7 @@ export default function SessionPage() {
                                       
                                       {availableConnectors.filter(c => c.name.toLowerCase().includes(connectorSearch.toLowerCase())).length === 0 && (
                                         <div className="py-8 text-center text-xs text-zinc-600 font-medium">
-                                          No tools found for "{connectorSearch}"
+                                          No tools found for &quot;{connectorSearch}&quot;
                                         </div>
                                       )}
                                     </div>

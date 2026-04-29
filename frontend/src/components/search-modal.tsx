@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useState, useRef } from "react";
+import { useCallback, useEffect, useState, useRef } from "react";
 import { Search, X, Clock, ArrowRight, MessageSquare, History } from "lucide-react";
-import { motion, AnimatePresence } from "framer-motion";
+import { motion } from "framer-motion";
 import Link from "next/link";
 import { useRouter, usePathname } from "next/navigation";
 
@@ -19,20 +19,24 @@ export function SearchModal({ isOpen, onClose }: SearchModalProps) {
 
   useEffect(() => {
     if (isOpen) {
-      setQuery("");
       const timer = setTimeout(() => inputRef.current?.focus(), 100);
       return () => clearTimeout(timer);
     }
   }, [isOpen]);
 
+  const handleClose = useCallback(() => {
+    setQuery("");
+    onClose();
+  }, [onClose]);
+
   // Handle escape key
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
+      if (e.key === "Escape") handleClose();
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [onClose]);
+  }, [handleClose]);
 
   if (!isOpen) return null;
 
@@ -46,7 +50,7 @@ export function SearchModal({ isOpen, onClose }: SearchModalProps) {
     } else {
       router.push(target);
     }
-    onClose();
+    handleClose();
   };
 
   const handleSearch = (e: React.FormEvent) => {
@@ -60,7 +64,7 @@ export function SearchModal({ isOpen, onClose }: SearchModalProps) {
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         exit={{ opacity: 0 }}
-        onClick={onClose}
+        onClick={handleClose}
         className="fixed inset-0 bg-zinc-950/40 backdrop-blur-sm"
       />
       
@@ -83,7 +87,7 @@ export function SearchModal({ isOpen, onClose }: SearchModalProps) {
             />
             <button 
               type="button"
-              onClick={onClose}
+              onClick={handleClose}
               className="p-1 rounded-md hover:bg-zinc-100 dark:hover:bg-zinc-800 text-zinc-400 transition-colors"
             >
               <X className="w-5 h-5" />
@@ -116,7 +120,7 @@ export function SearchModal({ isOpen, onClose }: SearchModalProps) {
                 <div className="space-y-1">
                   <Link
                     href="/history"
-                    onClick={onClose}
+                    onClick={handleClose}
                     className="flex items-center justify-between px-3 py-2.5 rounded-xl hover:bg-zinc-100 dark:hover:bg-zinc-800/50 text-zinc-600 dark:text-zinc-400 transition-colors group"
                   >
                     <div className="flex items-center gap-3">
@@ -127,7 +131,7 @@ export function SearchModal({ isOpen, onClose }: SearchModalProps) {
                   </Link>
                   <Link
                     href="/dashboard"
-                    onClick={onClose}
+                    onClick={handleClose}
                     className="flex items-center justify-between px-3 py-2.5 rounded-xl hover:bg-zinc-100 dark:hover:bg-zinc-800/50 text-zinc-600 dark:text-zinc-400 transition-colors group"
                   >
                     <div className="flex items-center gap-3">
@@ -146,7 +150,7 @@ export function SearchModal({ isOpen, onClose }: SearchModalProps) {
                   >
                       <div className="flex items-center gap-3">
                           <Search className="w-4 h-4 text-indigo-500" />
-                          <span className="text-sm font-medium">Search for "{query}"</span>
+                          <span className="text-sm font-medium">Search for &quot;{query}&quot;</span>
                       </div>
                       <span className="text-[10px] bg-zinc-200 dark:bg-zinc-700 px-1.5 py-0.5 rounded uppercase font-bold tracking-tighter">Enter</span>
                   </button>

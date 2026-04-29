@@ -1,9 +1,10 @@
 "use client";
 
-import { useMemo, useRef, useEffect, useState, type ReactNode } from "react";
+import { useMemo, useRef, useEffect, useState } from "react";
 import { ChatMarkdown } from "@/components/chat-markdown";
 import { PermissionCard } from "@/components/permission-card";
 import { motion, AnimatePresence } from "framer-motion";
+import { X } from "lucide-react";
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -40,9 +41,6 @@ type Turn = {
 /* ------------------------------------------------------------------ */
 /*  Minimal Icons (2026 Style)                                         */
 /* ------------------------------------------------------------------ */
-function IconSparkles({ className }: { className?: string }) {
-  return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"/></svg>
-}
 function IconTerminal({ className }: { className?: string }) {
   return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className={className}><polyline points="4 17 10 11 4 5"/><line x1="12" x2="20" y1="19" y2="19"/></svg>
 }
@@ -239,8 +237,6 @@ function AgentActionStream({ events, isWorking }: { events: Extract<ChatItem, { 
     return "Processing...";
   }, [events]);
 
-  const toolCount = events.filter(e => e.type === "agent_tool_call").length;
-
   return (
     <motion.div layout className="flex flex-col w-full max-w-full mt-2 text-[14px]">
       {/* Header */}
@@ -302,11 +298,11 @@ function WorkflowStyleRow({ item }: { item: Extract<ChatItem, { kind: "event" }>
           <IconGlobe className="w-3.5 h-3.5" /> 
           <span>Using {String(item["tool"])}</span>
         </div>
-        {item["args"] && (
+        {item["args"] != null ? (
           <div className="pl-1 text-[12px] font-mono text-zinc-500 dark:text-zinc-500 break-all bg-black/20 rounded p-2 mt-1">
             {JSON.stringify(item["args"])}
           </div>
-        )}
+        ) : null}
       </div>
     );
   }

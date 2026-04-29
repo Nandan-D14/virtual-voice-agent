@@ -3,15 +3,15 @@
 import { useAuth } from "@/lib/auth-context";
 import { useRouter, usePathname } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
-import { LogOut, X, Menu, ChevronLeft, ChevronRight, Plus, PanelLeft, Cpu, Search } from "lucide-react";
+import { LogOut, X, Menu, ChevronRight, Plus, Search, type LucideIcon } from "lucide-react";
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { authenticatedFetch } from "@/lib/api-client";
 import { DEFAULT_PLAN_QUOTA, type PlanQuota } from "@/lib/message-types";
-import { NAV_LINKS, SIDEBAR_ACTIONS } from "@/lib/navigation";
+import { NAV_LINKS } from "@/lib/navigation";
 import { SearchModal } from "./search-modal";
 
-const NAV_ITEMS = NAV_LINKS as unknown as ReadonlyArray<{ href: string; icon: any; label?: string; name?: string }>;
+const NAV_ITEMS = NAV_LINKS as ReadonlyArray<{ href: string; icon: LucideIcon; label?: string; name?: string }>;
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const { user, signOutUser, isLoading: isAuthLoading } = useAuth();
