@@ -24,7 +24,7 @@ export default function ProfileSettingsPage() {
       </div>
 
       <div className="space-y-6">
-        <section className="p-6 rounded-3xl bg-white dark:bg-[#111114] border border-zinc-200 dark:border-[#2f2f35]">
+        <section className="p-6 rounded-3xl bg-white dark:bg-[#1a1a1c] border border-zinc-200 dark:border-[#2f2f35]">
           <h3 className="text-sm font-medium text-zinc-900 dark:text-zinc-100 mb-4 flex items-center gap-2">
             <Mail className="w-4 h-4 text-zinc-500" />
             Contact Email
@@ -36,7 +36,7 @@ export default function ProfileSettingsPage() {
         </section>
 
         {/* Appearance Settings */}
-        <section className="p-6 rounded-3xl bg-white dark:bg-[#111114] border border-zinc-200 dark:border-[#2f2f35]">
+        <section className="p-6 rounded-3xl bg-white dark:bg-[#1a1a1c] border border-zinc-200 dark:border-[#2f2f35]">
           <h3 className="text-sm font-medium text-zinc-900 dark:text-zinc-100 mb-4 flex items-center gap-2">
             <Monitor className="w-4 h-4 text-zinc-500" />
             Theme Preferences

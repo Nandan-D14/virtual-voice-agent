@@ -372,7 +372,7 @@ export default function ConnectorsPage() {
               initial={{ opacity: 0, y: 8 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: index * 0.03 }}
-              className="rounded-lg border border-zinc-200 bg-white p-5 shadow-sm dark:border-zinc-800 dark:bg-[#111114]"
+              className="rounded-lg border border-zinc-200 bg-white p-5 shadow-sm dark:border-zinc-800 dark:bg-[#1a1a1c]"
             >
               <div className="flex items-start justify-between gap-4">
                 <div className="flex items-center gap-3">
@@ -414,7 +414,7 @@ export default function ConnectorsPage() {
           <h2 className="text-lg font-semibold text-zinc-950 dark:text-white">Active Connections</h2>
           {loading ? <Loader2 className="h-4 w-4 animate-spin text-zinc-400" /> : null}
         </div>
-        <div className="overflow-hidden rounded-lg border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-[#111114]">
+        <div className="overflow-hidden rounded-lg border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-[#1a1a1c]">
           {connections.length === 0 ? (
             <div className="p-6 text-sm text-zinc-500">No user connectors are configured yet.</div>
           ) : (
@@ -498,7 +498,7 @@ function ConnectorModal({
 }) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-      <div className="w-full max-w-lg rounded-lg border border-zinc-200 bg-white p-5 shadow-xl dark:border-zinc-800 dark:bg-[#111114]">
+      <div className="w-full max-w-lg rounded-lg border border-zinc-200 bg-white p-5 shadow-xl dark:border-zinc-800 dark:bg-[#1a1a1c]">
         <div className="mb-4 flex items-center justify-between">
           <div className="flex items-center gap-2">
             <CheckCircle2 className="h-5 w-5 text-emerald-500" />

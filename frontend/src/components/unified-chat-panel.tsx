@@ -49,6 +49,21 @@ function IconTerminal({ className }: { className?: string }) {
 function IconEye({ className }: { className?: string }) {
   return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>
 }
+function IconCpu({ className }: { className?: string }) {
+  return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><rect width="16" height="16" x="4" y="4" rx="2"/><rect width="6" height="6" x="9" y="9" rx="1"/><path d="M15 2v2"/><path d="M15 20v2"/><path d="M2 15h2"/><path d="M2 9h2"/><path d="M20 15h2"/><path d="M20 9h2"/><path d="M9 2v2"/><path d="M9 20v2"/></svg>
+}
+function IconCheckCircle({ className }: { className?: string }) {
+  return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+}
+function IconChevronUp({ className }: { className?: string }) {
+  return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="m18 15-6-6-6 6"/></svg>
+}
+function IconGlobe({ className }: { className?: string }) {
+  return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"/><path d="M2 12h20"/></svg>
+}
+function IconCompass({ className }: { className?: string }) {
+  return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><circle cx="12" cy="12" r="10"/><polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76"/></svg>
+}
 
 /* ------------------------------------------------------------------ */
 /*  Main exported component                                            */
@@ -95,9 +110,9 @@ export function UnifiedChatPanel({
   return (
     <div
       ref={scrollRef}
-      className="overflow-y-auto h-full custom-scrollbar flex flex-col px-4 py-8 relative bg-transparent"
+      className="overflow-y-auto h-full custom-scrollbar flex flex-col px-6 py-8 relative bg-transparent"
     >
-      <div className="mx-auto max-w-3xl w-full flex flex-col gap-12 pb-32">
+      <div className="mx-auto max-w-3xl w-full flex flex-col gap-12 pb-48">
         <AnimatePresence initial={false}>
           {turns.map((turn, i) => {
             const isLastTurn = i === turns.length - 1;
@@ -107,33 +122,46 @@ export function UnifiedChatPanel({
               <motion.div 
                 key={turn.id} 
                 layout
-                initial={{ opacity: 0, y: 20, filter: "blur(4px)" }}
-                animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
-                className="flex flex-col gap-6"
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="flex flex-col gap-8"
               >
                 {turn.userMessage && (
                   <UserMessageCard text={turn.userMessage.text} />
                 )}
                 
-                {turn.events.length > 0 && (
-                  <AgentActionStream events={turn.events} isWorking={isWorking} />
+                {(turn.events.length > 0 || turn.agentMessages.length > 0 || turn.permissions.length > 0) && (
+                  <div className="w-full flex flex-col gap-6">
+                    {/* Agent Identity Header */}
+                    <div className="flex items-center gap-2.5 px-0.5">
+                      <div className="w-6 h-6 rounded-lg bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center">
+                        <IconCpu className="w-4 h-4 text-indigo-400" />
+                      </div>
+                      <span className="font-bold text-[15px] tracking-tight text-zinc-100">CoComputer</span>
+                      <span className="text-[9px] text-indigo-400/80 border border-indigo-500/20 rounded px-1.5 py-0.5 ml-1 bg-indigo-500/5 font-bold uppercase tracking-wider">Lite</span>
+                    </div>
+
+                    {turn.events.length > 0 && (
+                      <AgentActionStream events={turn.events} isWorking={isWorking} />
+                    )}
+
+                    {turn.agentMessages.map((msg, idx) => (
+                      <AgentMessageCard key={idx} text={msg.text} />
+                    ))}
+
+                    {turn.permissions.map((perm, idx) => (
+                      <motion.div layout key={idx} className="py-1">
+                        <PermissionCard
+                          taskId={perm.task_id}
+                          description={perm.description}
+                          estimatedSeconds={perm.estimated_seconds}
+                          agent={perm.agent}
+                          onRespond={onPermissionRespond}
+                        />
+                      </motion.div>
+                    ))}
+                  </div>
                 )}
-
-                {turn.agentMessages.map((msg, idx) => (
-                  <AgentMessageCard key={idx} text={msg.text} />
-                ))}
-
-                {turn.permissions.map((perm, idx) => (
-                  <motion.div layout key={idx} className="py-1">
-                    <PermissionCard
-                      taskId={perm.task_id}
-                      description={perm.description}
-                      estimatedSeconds={perm.estimated_seconds}
-                      agent={perm.agent}
-                      onRespond={onPermissionRespond}
-                    />
-                  </motion.div>
-                ))}
 
                 {turn.delegations.map((del, idx) => (
                   <DelegationBadge key={idx} from={del.from} to={del.to} />
@@ -150,13 +178,13 @@ export function UnifiedChatPanel({
               initial={{ opacity: 0, scale: 0.9 }}
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.9 }}
-              className="flex items-center gap-3 text-cyan-400 py-2"
+              className="flex items-center gap-3 text-indigo-400 py-2"
             >
               <div className="relative flex h-3 w-3">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-cyan-400 opacity-75"></span>
-                <span className="relative inline-flex rounded-full h-3 w-3 bg-cyan-500"></span>
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-indigo-400 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-3 w-3 bg-indigo-500"></span>
               </div>
-              <span className="text-[15px] font-medium tracking-wide">Synthesizing intent...</span>
+              <span className="text-[14px] font-medium tracking-wide">Synthesizing intent...</span>
             </motion.div>
           )}
         </AnimatePresence>
@@ -171,8 +199,8 @@ export function UnifiedChatPanel({
 
 function UserMessageCard({ text }: { text: string }) {
   return (
-    <div className="flex w-full justify-end py-2 pl-12">
-      <div className="max-w-[80%] rounded-2xl rounded-tr-md bg-zinc-100/80 dark:bg-[#212126] border border-zinc-200/50 dark:border-[#2f2f35] px-5 py-3.5 text-[15px] leading-relaxed text-zinc-900 dark:text-zinc-100 shadow-sm backdrop-blur-sm">
+    <div className="flex w-full justify-end py-1">
+      <div className="max-w-[85%] rounded-2xl bg-[#27272a] px-5 py-4 text-[15px] leading-relaxed text-zinc-100 shadow-sm border border-zinc-700/30">
         {text}
       </div>
     </div>
@@ -180,13 +208,13 @@ function UserMessageCard({ text }: { text: string }) {
 }
 
 /* ------------------------------------------------------------------ */
-/*  Agent Message (Borderless, crisp markdown)                         */
+/*  Agent Message (Crisp markdown)                                     */
 /* ------------------------------------------------------------------ */
 
 function AgentMessageCard({ text }: { text: string }) {
   return (
-    <motion.div layout className="flex flex-col items-start py-2 pr-12">
-      <div className="w-full text-[16px] leading-relaxed text-zinc-700 dark:text-zinc-300 font-normal">
+    <motion.div layout className="flex flex-col items-start px-0.5">
+      <div className="w-full text-[15px] leading-relaxed text-zinc-200 font-normal">
         <ChatMarkdown content={text} />
       </div>
     </motion.div>
@@ -198,7 +226,7 @@ function AgentMessageCard({ text }: { text: string }) {
 /* ------------------------------------------------------------------ */
 
 function AgentActionStream({ events, isWorking }: { events: Extract<ChatItem, { kind: "event" }>[], isWorking: boolean }) {
-  const [expanded, setExpanded] = useState(false);
+  const [expanded, setExpanded] = useState(true);
   
   // Find the most recent meaningful action to show as the "status"
   const currentAction = useMemo(() => {
@@ -212,55 +240,33 @@ function AgentActionStream({ events, isWorking }: { events: Extract<ChatItem, { 
   }, [events]);
 
   const toolCount = events.filter(e => e.type === "agent_tool_call").length;
-  const timeSecs = events.length > 1 ? ((events[events.length - 1].ts - events[0].ts) / 1000).toFixed(1) : 0;
-
-  if (!isWorking && !expanded) {
-    return (
-      <motion.button 
-        layout
-        onClick={() => setExpanded(true)}
-        className="group w-fit flex items-center gap-2.5 px-3 py-1.5 rounded-full bg-zinc-100/50 dark:bg-zinc-900/50 border border-zinc-200/50 dark:border-zinc-800/50 hover:bg-zinc-200/50 dark:hover:bg-zinc-800/80 transition-all cursor-pointer overflow-hidden backdrop-blur-sm"
-      >
-        <IconSparkles className="w-3.5 h-3.5 text-zinc-400 dark:text-zinc-500 group-hover:text-cyan-500 transition-colors" />
-        <span className="text-[12px] font-medium text-zinc-500 dark:text-zinc-400 group-hover:text-zinc-700 dark:group-hover:text-zinc-200 transition-colors">
-          Analyzed intent and ran {toolCount} tool{toolCount !== 1 ? 's' : ''} in {timeSecs}s
-        </span>
-      </motion.button>
-    );
-  }
 
   return (
-    <motion.div layout className="flex flex-col gap-3 w-full max-w-full">
-      {/* The Active/Status Bar */}
+    <motion.div layout className="flex flex-col w-full max-w-full mt-2 text-[14px]">
+      {/* Header */}
       <div 
-        className="flex items-center gap-3 text-cyan-500 cursor-pointer w-fit"
-        onClick={() => !isWorking && setExpanded(false)}
+        className="flex items-center gap-2 cursor-pointer transition-colors pt-2 pb-3"
+        onClick={() => setExpanded(!expanded)}
       >
-        {isWorking ? (
-           <div className="relative flex h-2 w-2 ml-1">
-             <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-cyan-400 opacity-75"></span>
-             <span className="relative inline-flex rounded-full h-2 w-2 bg-cyan-500"></span>
-           </div>
-        ) : (
-           <IconSparkles className="w-4 h-4 text-zinc-500 hover:text-cyan-500 transition-colors" />
-        )}
-        <span className={`text-[14px] font-medium tracking-wide ${isWorking ? "text-cyan-500 animate-pulse" : "text-zinc-500"}`}>
-          {isWorking ? currentAction : "Execution Log"}
-        </span>
+        <IconCheckCircle className={`w-4 h-4 ${isWorking ? "text-cyan-500 animate-pulse" : "text-zinc-500"}`} />
+        <span className="font-semibold text-zinc-200">{isWorking ? currentAction : "Execution Log"}</span>
+        <IconChevronUp className={`w-4 h-4 text-zinc-500 ml-1 transition-transform ${expanded ? "" : "rotate-180"}`} />
       </div>
 
-      {/* The Glassmorphic Log Stream */}
+      {/* The Workflow style log stream */}
       <AnimatePresence>
-        {(isWorking || expanded) && (
+        {expanded && (
           <motion.div 
-            initial={{ opacity: 0, height: 0, filter: "blur(4px)" }}
-            animate={{ opacity: 1, height: "auto", filter: "blur(0px)" }}
-            exit={{ opacity: 0, height: 0, filter: "blur(4px)" }}
-            className="flex flex-col gap-1.5 pl-6 border-l border-zinc-200 dark:border-zinc-800/80"
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: "auto" }}
+            exit={{ opacity: 0, height: 0 }}
+            className="pl-2.5 pb-2"
           >
-            {events.map((item, index) => (
-              <GlassRow key={`${item.type}-${item.ts}-${index}`} item={item} />
-            ))}
+            <div className="border-l border-zinc-800/80 pl-5 space-y-4 relative pb-2 min-h-[20px]">
+              {events.map((item, index) => (
+                <WorkflowStyleRow key={`${item.type}-${item.ts}-${index}`} item={item} />
+              ))}
+            </div>
           </motion.div>
         )}
       </AnimatePresence>
@@ -269,27 +275,35 @@ function AgentActionStream({ events, isWorking }: { events: Extract<ChatItem, { 
 }
 
 /* ------------------------------------------------------------------ */
-/*  Glass Row (Individual items in the stream)                         */
+/*  Workflow Style Row                                                 */
 /* ------------------------------------------------------------------ */
 
-function GlassRow({ item }: { item: Extract<ChatItem, { kind: "event" }> }) {
+function WorkflowStyleRow({ item }: { item: Extract<ChatItem, { kind: "event" }> }) {
   if (item.type === "agent_thinking") {
     return (
-      <div className="text-[13px] text-zinc-400 dark:text-zinc-500 py-1">
-        {String(item["content"] || "Thinking...")}
+      <div className="flex flex-col gap-2 relative">
+        <div className="absolute -left-[28px] top-1 bg-[#1a1a1c] p-0.5">
+          <IconCompass className="w-[14px] h-[14px] text-zinc-500" />
+        </div>
+        <p className="text-zinc-300 text-[14px] mt-1 pr-4 leading-relaxed">
+          {String(item["content"] || "Thinking...")}
+        </p>
       </div>
     );
   }
 
   if (item.type === "agent_tool_call") {
     return (
-      <div className="flex flex-col gap-1 py-1.5">
-        <div className="flex items-center gap-2 text-[13px] font-medium text-zinc-700 dark:text-zinc-300">
-          <IconTerminal className="w-3.5 h-3.5 text-zinc-400" />
-          <span>{String(item["tool"])}</span>
+      <div className="flex flex-col gap-2 relative">
+        <div className="absolute -left-[28px] top-1 bg-[#1a1a1c] p-0.5">
+          <IconTerminal className="w-[14px] h-[14px] text-zinc-500" />
+        </div>
+        <div className="bg-[#242426] border border-zinc-800/80 rounded-full px-3 py-1 text-[13px] text-zinc-400 flex items-center gap-2 inline-flex w-fit">
+          <IconGlobe className="w-3.5 h-3.5" /> 
+          <span>Using {String(item["tool"])}</span>
         </div>
         {item["args"] && (
-          <div className="pl-5 text-[12px] font-mono text-zinc-500 dark:text-zinc-500 break-all">
+          <div className="pl-1 text-[12px] font-mono text-zinc-500 dark:text-zinc-500 break-all bg-black/20 rounded p-2 mt-1">
             {JSON.stringify(item["args"])}
           </div>
         )}
@@ -299,8 +313,8 @@ function GlassRow({ item }: { item: Extract<ChatItem, { kind: "event" }> }) {
 
   if (item.type === "agent_tool_result") {
     return (
-      <div className="pl-5 py-1 w-full">
-        <div className="w-full max-h-32 overflow-y-auto custom-scrollbar bg-zinc-100/50 dark:bg-[#0A0A0A] border border-zinc-200/50 dark:border-zinc-800/50 rounded-lg p-2.5 text-[11px] font-mono text-zinc-600 dark:text-zinc-400 whitespace-pre-wrap break-words backdrop-blur-sm">
+      <div className="pl-1 py-1 w-full relative">
+        <div className="w-full max-h-32 overflow-y-auto custom-scrollbar bg-zinc-900/50 border border-zinc-800/50 rounded-lg p-2.5 text-[11px] font-mono text-zinc-500 whitespace-pre-wrap break-words">
           {String(item["output"] || "Success")}
         </div>
       </div>
@@ -309,17 +323,22 @@ function GlassRow({ item }: { item: Extract<ChatItem, { kind: "event" }> }) {
 
   if (item.type === "agent_screenshot") {
     return (
-      <div className="flex flex-col gap-2 py-1.5">
-        <div className="flex items-center gap-2 text-[13px] font-medium text-zinc-700 dark:text-zinc-300">
-          <IconEye className="w-3.5 h-3.5 text-amber-500" />
+      <div className="flex flex-col gap-2 relative">
+        <div className="absolute -left-[28px] top-1 bg-[#1a1a1c] p-0.5">
+          <IconEye className="w-[14px] h-[14px] text-zinc-500" />
+        </div>
+        <div className="bg-[#242426] border border-zinc-800/80 rounded-full px-3 py-1 text-[13px] text-zinc-400 flex items-center gap-2 inline-flex w-fit">
+          <IconEye className="w-3.5 h-3.5" /> 
           <span>Vision Analysis</span>
         </div>
-        <div className="pl-5 space-y-2">
+        <div className="pl-1 space-y-2 mt-1">
           {typeof item["analysis"] === "string" && item["analysis"] && (
-            <p className="text-[12px] text-zinc-500 dark:text-zinc-400 leading-relaxed">{item["analysis"]}</p>
+            <p className="text-[14px] text-zinc-300 leading-relaxed pr-4">{item["analysis"]}</p>
           )}
           {typeof item["image_b64"] === "string" && item["image_b64"] && (
-             <img src={`data:image/png;base64,${item["image_b64"]}`} className="max-h-32 rounded-lg border border-zinc-200/50 dark:border-zinc-800/50 object-contain shadow-sm" alt="Screenshot" />
+             <div className="relative w-[160px] h-[100px] rounded overflow-hidden border border-zinc-700/80 brightness-75 hover:brightness-100 transition">
+               <img src={`data:image/png;base64,${item["image_b64"]}`} className="object-cover w-full h-full" alt="Screenshot" />
+             </div>
           )}
         </div>
       </div>
@@ -328,9 +347,11 @@ function GlassRow({ item }: { item: Extract<ChatItem, { kind: "event" }> }) {
 
   if (item.type === "error") {
      return (
-      <div className="py-1.5 text-[13px] text-red-500 flex items-center gap-2">
-        <span className="w-1.5 h-1.5 rounded-full bg-red-500" />
-        {String(item["message"] || "Failed")}
+      <div className="py-1.5 text-[13px] text-red-500 flex items-center gap-2 relative">
+        <div className="absolute -left-[28px] top-1 bg-[#1a1a1c] p-0.5">
+          <X className="w-[14px] h-[14px] text-red-500" />
+        </div>
+        <span className="font-medium">{String(item["message"] || "Failed")}</span>
       </div>
      );
   }
@@ -347,10 +368,9 @@ function GlassRow({ item }: { item: Extract<ChatItem, { kind: "event" }> }) {
     item.type === "pong" ||
     item.type === "quota_update"
   ) {
-    return null; // Keep it clean, don't show plumbing
+    return null; 
   }
 
-  // Only show known events, silently drop the rest to maintain a pristine UI
   return null;
 }
 

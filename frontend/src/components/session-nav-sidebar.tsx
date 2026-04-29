@@ -3,12 +3,13 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
-import { LogOut, Menu, X, PlusCircle, LayoutDashboard, Settings, History, ChevronLeft, ChevronRight, Plus, PanelLeft, Cpu } from "lucide-react";
+import { LogOut, Menu, X, PlusCircle, LayoutDashboard, Settings, History, ChevronLeft, ChevronRight, Plus, PanelLeft, Cpu, Search } from "lucide-react";
 import { SIDEBAR_ACTIONS, NAV_LINKS } from "@/lib/navigation";
 import { useAuth } from "@/lib/auth-context";
 import { authenticatedFetch } from "@/lib/api-client";
 import { DEFAULT_PLAN_QUOTA, type PlanQuota } from "@/lib/message-types";
 import { motion, AnimatePresence } from "framer-motion";
+import { SearchModal } from "./search-modal";
 
 /* ------------------------------------------------------------------ */
 /*  Nav items                                                          */
@@ -27,6 +28,7 @@ export function SessionNavSidebar() {
   const [quota, setQuota] = useState<PlanQuota | null>(null);
   const [isSidebarOpen, setIsSidebarOpen] = useState(true); // For mobile
   const [isCollapsed, setIsCollapsed] = useState(false); // For desktop
+  const [isSearchOpen, setIsSearchOpen] = useState(false);
 
   const isMobileViewport = () => typeof window !== "undefined" && window.innerWidth < 768;
 
@@ -103,7 +105,7 @@ export function SessionNavSidebar() {
         </div>
 
         {/* Actions (New Task) */}
-        <div className="px-3 mt-2">
+        <div className="px-3 mt-2 space-y-1">
           <button
             onClick={handleNewSession}
             className={`w-full flex items-center gap-3 transition-all duration-200 rounded-lg ${
@@ -115,6 +117,20 @@ export function SessionNavSidebar() {
             <Plus className="w-4 h-4" strokeWidth={2.5} />
             {!isCollapsed && <span className="text-[13px] font-medium tracking-tight">New task</span>}
           </button>
+
+          <button
+            onClick={() => {
+              setIsSearchOpen(true);
+              if (isMobileViewport()) setIsSidebarOpen(false);
+            }}
+            className={`w-full flex items-center gap-3 transition-all duration-200 rounded-lg text-zinc-600 dark:text-zinc-400 hover:bg-zinc-200/50 dark:hover:bg-zinc-800/50 hover:text-zinc-900 dark:hover:text-zinc-200 ${
+              isCollapsed ? "justify-center p-2.5" : "px-3 py-2"
+            }`}
+            title={isCollapsed ? "Search" : ""}
+          >
+            <Search className="w-4 h-4" />
+            {!isCollapsed && <span className="text-[13px] font-medium tracking-tight">Search</span>}
+          </button>
         </div>
 
         {/* Navigation Links */}
@@ -122,6 +138,7 @@ export function SessionNavSidebar() {
           {NAV_ITEMS.map(({ href, icon: Icon, label, name }) => {
             const active = pathname.startsWith(href);
             const displayName = label || name;
+
             return (
               <Link
                 key={href}
@@ -204,6 +221,12 @@ export function SessionNavSidebar() {
           onClick={() => setIsSidebarOpen(false)}
         />
       )}
+
+      <AnimatePresence>
+        {isSearchOpen && (
+          <SearchModal isOpen={true} onClose={() => setIsSearchOpen(false)} />
+        )}
+      </AnimatePresence>
     </>
   );
 }

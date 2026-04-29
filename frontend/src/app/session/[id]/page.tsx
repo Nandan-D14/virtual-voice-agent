@@ -11,7 +11,8 @@ import {
   useState,
 } from "react";
 
-import { Check, ChevronDown, Link2, Paperclip, X } from "lucide-react";
+import { Check, ChevronDown, Link2, Paperclip, X, Plus, Monitor, Mic, ArrowUp, Signal, Globe, User, Settings, Search } from "lucide-react";
+import { motion, AnimatePresence } from "framer-motion";
 
 import { DemoPicker } from "@/components/demo-picker";
 import { DesktopPanel } from "@/components/desktop-panel";
@@ -325,6 +326,7 @@ export default function SessionPage() {
   const [uploadedFiles, setUploadedFiles] = useState<UploadedInputFile[]>([]);
   const [todoItems, setTodoItems] = useState<Array<{ title: string; status: "pending" | "in_progress" | "done"; note?: string }>>([]);
   const [isConnectorMenuOpen, setIsConnectorMenuOpen] = useState(false);
+  const [connectorSearch, setConnectorSearch] = useState("");
   const [isUploadingFile, setIsUploadingFile] = useState(false);
   const [hasActivatedSession, setHasActivatedSession] = useState(false);
   const [isContinuingThread, setIsContinuingThread] = useState(false);
@@ -1546,7 +1548,7 @@ export default function SessionPage() {
   const uploadDisabled = isNewSession || viewMode !== "live" || isUploadingFile;
 
   return (
-    <div className="h-screen flex overflow-hidden bg-[#fafafa] dark:bg-[#111114]">
+    <div className="h-screen flex overflow-hidden bg-[#fafafa] dark:bg-[#1a1a1c]">
       <input
         ref={fileInputRef}
         type="file"
@@ -1595,10 +1597,10 @@ export default function SessionPage() {
                 <p className="text-[15px] text-zinc-500">What can I help you with?</p>
               </div>
 
-              {/* Floating Input Box */}
-              <div className="w-full relative group max-w-2xl mx-auto mt-4 px-4">
-                <div className="relative flex flex-col bg-white/60 dark:bg-[#151515]/60 backdrop-blur-2xl border border-black/5 dark:border-white/5 rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] dark:shadow-[0_8px_30px_rgb(0,0,0,0.2)] focus-within:shadow-[0_8px_40px_rgb(0,0,0,0.08)] dark:focus-within:shadow-[0_8px_40px_rgb(0,0,0,0.3)] transition-all duration-500 p-2.5">
-                  <div className="relative min-h-[60px] flex items-start px-2 pt-2 pb-1">
+              {/* Redesigned Landing Input Box */}
+              <div className="w-full max-w-2xl mx-auto mt-4 px-4">
+                <div className="relative flex flex-col bg-transparent border border-zinc-700/50 rounded-2xl p-1 shadow-2xl transition-all focus-within:border-zinc-500/50">
+                  <div className="relative min-h-[60px] flex items-start px-4 py-3">
                     <textarea
                       suppressHydrationWarning
                       ref={landingInputRef}
@@ -1610,24 +1612,24 @@ export default function SessionPage() {
                           handleTextSubmit();
                         }
                       }}
-                      placeholder="Send message to CoComputer..."
+                      placeholder="Send message to CoComputer"
                       rows={1}
-                      className="w-full bg-transparent border-none outline-none text-sm text-zinc-900 dark:text-zinc-100 placeholder:text-zinc-500 resize-none overflow-y-auto max-h-50 focus:ring-0 leading-relaxed"
+                      className="w-full bg-transparent border-none outline-none text-[15px] text-zinc-200 placeholder-zinc-500 resize-none overflow-y-auto max-h-50 focus:ring-0 leading-relaxed placeholder:font-medium"
                     />
                   </div>
                   {uploadedFiles.length > 0 ? (
-                    <div className="flex flex-wrap gap-2 px-3 pb-1">
+                    <div className="flex flex-wrap gap-2 px-3 pb-1 mb-2">
                       {uploadedFiles.map((file) => (
                         <span
                           key={file.path}
-                          className="inline-flex items-center gap-2 rounded-full border border-zinc-200 bg-white px-3 py-1 text-xs text-zinc-700 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200"
+                          className="inline-flex items-center gap-2 rounded-full border border-zinc-700 bg-zinc-800 px-3 py-1 text-xs text-zinc-200"
                         >
                           <Paperclip className="h-3.5 w-3.5" />
                           <span className="max-w-44 truncate">{file.name}</span>
                           <button
                             type="button"
                             onClick={() => handleRemoveUploadedFile(file.path)}
-                            className="text-zinc-400 transition-colors hover:text-zinc-700 dark:hover:text-zinc-200"
+                            className="text-zinc-400 transition-colors hover:text-zinc-200"
                           >
                             <X className="h-3.5 w-3.5" />
                           </button>
@@ -1635,89 +1637,156 @@ export default function SessionPage() {
                       ))}
                     </div>
                   ) : null}
-                  <div className="flex items-center justify-between mt-2 px-2">
-                    <div className="flex items-center gap-3 text-zinc-400">
-                      {/* Paperclip */}
+                  
+                  <div className="flex items-center justify-between mt-1 px-2 pb-2">
+                    <div className="flex items-center gap-2">
                       <button
                         type="button"
                         onClick={handleOpenFilePicker}
                         disabled={uploadDisabled}
-                        className="hover:text-zinc-600 dark:hover:text-zinc-300 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-                        title={isNewSession ? "File upload is available after the live session starts." : "Upload files"}
+                        className="p-1.5 text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800 rounded-full transition-colors flex items-center justify-center border border-zinc-700/50 disabled:opacity-40"
+                        title="Attach"
                       >
-                        <Paperclip className="w-5 h-5" />
+                        <Plus className="w-4 h-4" />
                       </button>
                       
                       <div ref={connectorMenuRef} className="relative">
                         <button
                           type="button"
                           onClick={() => setIsConnectorMenuOpen((open) => !open)}
-                          className="flex items-center gap-1.5 px-3 py-1.5 rounded-full hover:bg-zinc-100 dark:hover:bg-zinc-800/50 transition-colors text-sm font-medium"
+                          className="p-1.5 text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800 rounded transition-colors flex items-center gap-1.5"
+                          title="Links"
                         >
                           <Link2 className="w-4 h-4" />
-                          <span>{selectedConnectorLabel}</span>
-                          <ChevronDown className="w-3.5 h-3.5" />
+                          {selectedConnectorIds.length > 0 && (
+                            <span className="text-[10px] bg-indigo-500 text-white rounded-full w-4 h-4 flex items-center justify-center font-bold">
+                              {selectedConnectorIds.length}
+                            </span>
+                          )}
                         </button>
-                        {isConnectorMenuOpen ? (
-                          <div className="absolute left-0 bottom-full mb-2 w-72 rounded-2xl border border-zinc-200 bg-white p-2 shadow-xl dark:border-zinc-800 dark:bg-[#17171c]">
-                            <div className="px-2 pb-2 text-xs uppercase tracking-[0.16em] text-zinc-500">
-                              Connected tools
-                            </div>
-                            <div className="space-y-1">
-                              {availableConnectors.map((connector) => {
-                                const checked = selectedConnectorIds.includes(connector.connection_id);
-                                return (
-                                  <button
-                                    key={connector.connection_id}
-                                    type="button"
-                                    onClick={() => toggleConnectorSelection(connector.connection_id)}
-                                    className="flex w-full items-center justify-between rounded-xl px-3 py-2 text-left text-sm hover:bg-zinc-100 dark:hover:bg-zinc-800/70"
+                        <AnimatePresence>
+                          {isConnectorMenuOpen && (
+                            <motion.div 
+                              initial={{ opacity: 0, scale: 0.95, y: 10 }}
+                              animate={{ opacity: 1, scale: 1, y: 0 }}
+                              exit={{ opacity: 0, scale: 0.95, y: 10 }}
+                              className="absolute left-0 bottom-full mb-3 w-80 rounded-2xl border border-zinc-800 bg-[#161618] p-1.5 shadow-2xl z-50 overflow-hidden"
+                            >
+                              {/* Search & Actions Header */}
+                              <div className="p-2 flex flex-col gap-2 border-b border-zinc-800/50 mb-1">
+                                <div className="relative flex items-center">
+                                  <Search className="absolute left-2.5 w-3.5 h-3.5 text-zinc-500" />
+                                  <input 
+                                    autoFocus
+                                    type="text"
+                                    value={connectorSearch}
+                                    onChange={(e) => setConnectorSearch(e.target.value)}
+                                    placeholder="Search tools..."
+                                    className="w-full bg-zinc-900/50 border border-zinc-800 rounded-lg pl-8 pr-3 py-1.5 text-xs text-zinc-200 placeholder:text-zinc-600 focus:outline-none focus:ring-1 focus:ring-indigo-500/50 transition-all"
+                                  />
+                                </div>
+                                <div className="flex items-center justify-between px-1">
+                                  <span className="text-[10px] uppercase tracking-widest font-bold text-zinc-500">Connectors</span>
+                                  <button 
+                                    onClick={() => {
+                                      const allIds = availableConnectors.map(c => c.connection_id);
+                                      const filteredIds = availableConnectors
+                                        .filter(c => c.name.toLowerCase().includes(connectorSearch.toLowerCase()))
+                                        .map(c => c.connection_id);
+                                      
+                                      if (filteredIds.every(id => selectedConnectorIds.includes(id))) {
+                                        setSelectedConnectorIds(prev => prev.filter(id => !filteredIds.includes(id)));
+                                      } else {
+                                        setSelectedConnectorIds(prev => Array.from(new Set([...prev, ...filteredIds])));
+                                      }
+                                    }}
+                                    className="text-[10px] font-bold text-indigo-400 hover:text-indigo-300 transition-colors"
                                   >
-                                    <div>
-                                      <div className="font-medium text-zinc-900 dark:text-zinc-100">
-                                        {connector.name}
-                                      </div>
-                                      <div className="text-xs uppercase tracking-[0.12em] text-zinc-500">
-                                        {connector.provider}
-                                      </div>
-                                    </div>
-                                    <span
-                                      className={`flex h-5 w-5 items-center justify-center rounded-full border ${
-                                        checked
-                                          ? "border-zinc-900 bg-zinc-900 text-white dark:border-white dark:bg-white dark:text-black"
-                                          : "border-zinc-300 text-transparent dark:border-zinc-700"
-                                      }`}
-                                    >
-                                      <Check className="h-3.5 w-3.5" />
-                                    </span>
+                                    Toggle All
                                   </button>
-                                );
-                              })}
-                            </div>
-                          </div>
-                        ) : null}
+                                </div>
+                              </div>
+
+                              {/* Scrollable List */}
+                              <div className="max-h-64 overflow-y-auto custom-scrollbar space-y-0.5 px-0.5">
+                                {availableConnectors
+                                  .filter(c => c.name.toLowerCase().includes(connectorSearch.toLowerCase()))
+                                  .map((connector) => {
+                                    const checked = selectedConnectorIds.includes(connector.connection_id);
+                                    return (
+                                      <button
+                                        key={connector.connection_id}
+                                        type="button"
+                                        onClick={() => toggleConnectorSelection(connector.connection_id)}
+                                        className={`flex w-full items-center justify-between rounded-xl px-3 py-2.5 text-left transition-all ${
+                                          checked ? "bg-indigo-500/5" : "hover:bg-zinc-800/60"
+                                        }`}
+                                      >
+                                        <div className="flex items-center gap-3">
+                                          <div className={`w-8 h-8 rounded-lg flex items-center justify-center border ${checked ? "border-indigo-500/30 bg-indigo-500/10" : "border-zinc-800 bg-zinc-900/50"}`}>
+                                            <Globe className={`w-4 h-4 ${checked ? "text-indigo-400" : "text-zinc-500"}`} />
+                                          </div>
+                                          <div className="flex flex-col">
+                                            <div className={`text-[13px] font-medium leading-tight ${checked ? "text-zinc-100" : "text-zinc-300"}`}>
+                                              {connector.name}
+                                            </div>
+                                            <div className="text-[10px] uppercase tracking-wider text-zinc-500 mt-0.5 font-semibold">
+                                              {connector.provider}
+                                            </div>
+                                          </div>
+                                        </div>
+                                        <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center transition-all ${
+                                          checked ? "border-indigo-500 bg-indigo-500 text-white" : "border-zinc-700 bg-transparent text-transparent"
+                                        }`}>
+                                          <Check className="w-3 h-3 stroke-[3]" />
+                                        </div>
+                                      </button>
+                                    );
+                                  })}
+                                
+                                {availableConnectors.filter(c => c.name.toLowerCase().includes(connectorSearch.toLowerCase())).length === 0 && (
+                                  <div className="py-8 text-center text-xs text-zinc-600 font-medium">
+                                    No tools found for "{connectorSearch}"
+                                  </div>
+                                )}
+                              </div>
+                            </motion.div>
+                          )}
+                        </AnimatePresence>
                       </div>
+
+                      <button
+                        type="button"
+                        onClick={handleShowDesktop}
+                        className="p-1.5 text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800 rounded transition-colors"
+                        title="Workspace Context"
+                      >
+                        <Monitor className="w-4 h-4" />
+                      </button>
                     </div>
 
-                    <div className="flex items-center gap-2 pr-1">
-                      <MicButton
-                        isRecording={isRecording}
-                        onStart={toggleMic}
-                        onStop={toggleMic}
+                    <div className="flex items-center gap-2">
+                       <button
+                        onClick={toggleMic}
                         disabled={voiceStatus !== "connected"}
-                      />
+                        className={`p-1.5 rounded transition-colors ${
+                          isRecording ? "text-red-400 bg-red-500/10" : "text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800"
+                        } disabled:opacity-40`}
+                        title="Voice Input"
+                      >
+                        <Mic className="w-4 h-4" />
+                      </button>
                       <button
                         onClick={handleTextSubmit}
                         disabled={!textInput.trim() || isLoading || isUploadingFile}
-                        className={`w-8 h-8 flex items-center justify-center rounded-full transition-all duration-200 ${
+                        className={`p-1.5 rounded-full transition-colors border border-zinc-700/50 ${
                           textInput.trim() && !isLoading && !isUploadingFile
-                            ? "bg-zinc-900 text-white dark:bg-white dark:text-black hover:scale-105" 
-                            : "bg-zinc-100 text-zinc-400 dark:bg-zinc-800 dark:text-zinc-600"
+                            ? "bg-[#3a3a3c] text-zinc-200 hover:bg-zinc-600" 
+                            : "bg-zinc-800 text-zinc-500 cursor-not-allowed opacity-50"
                         }`}
+                        title="Send"
                       >
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={3} className="w-4 h-4">
-                          <path strokeLinecap="round" strokeLinejoin="round" d="M5 12h14M12 5l7 7-7 7" />
-                        </svg>
+                        <ArrowUp className="w-4 h-4" />
                       </button>
                     </div>
                   </div>
@@ -1746,17 +1815,16 @@ export default function SessionPage() {
         ) : (
           <>
             {/* ─── Header ─── */}
-            <header className="relative flex items-center justify-between px-5 py-3">
+            <header className="h-14 shrink-0 flex items-center justify-between px-6 border-b border-zinc-800/30">
               <div className="flex items-center gap-4">
-                <h1 className="text-base font-semibold tracking-tight text-zinc-900 dark:text-zinc-100">
-                  CoComputer
-                </h1>
+                <button className="flex items-center gap-2 text-[14px] font-medium text-zinc-200 hover:text-zinc-100 transition-colors">
+                  CoComputer <span className="text-[10px] uppercase font-bold text-zinc-400 border border-zinc-700/80 rounded px-1.5 py-0.5 bg-zinc-800/30">Beta</span> <ChevronDown className="w-4 h-4 text-zinc-500 ml-1" />
+                </button>
 
                 {viewMode === "live" && isConnected && (
-                  <span className="flex items-center gap-1.5 text-xs text-zinc-500 dark:text-zinc-400">
-                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                    LIVE
-                  </span>
+                  <div className="flex items-center gap-2 text-emerald-400 text-[13px] font-medium">
+                    <Signal className="w-4 h-4" /> Connected
+                  </div>
                 )}
 
                 {viewMode === "archived" && (
@@ -1764,53 +1832,20 @@ export default function SessionPage() {
                     Archived
                   </span>
                 )}
-
-                {viewMode === "live" && activeAgent && activeAgent !== "nexus" && (
-                  <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-[#f4f4f5] dark:bg-[#212126] text-[10px] uppercase tracking-widest font-bold text-zinc-600 dark:text-zinc-400">
-                    <span className="w-1.5 h-1.5 rounded-full bg-zinc-400 dark:bg-zinc-500 animate-pulse" />
-                    {activeAgent.replace(/_/g, " ")}
-                  </div>
-                )}
               </div>
 
-              <div className="flex items-center gap-2">
-                {!isNewSession && (
-                  <button
-                    suppressHydrationWarning
-                    onClick={handleOpenSaveTemplate}
-                    className="text-xs px-3 py-1.5 rounded-lg bg-zinc-100 text-zinc-700 border border-zinc-200 dark:bg-zinc-800 dark:text-zinc-200 dark:border-zinc-700 hover:bg-zinc-200 dark:hover:bg-zinc-700 transition-all duration-200"
-                  >
-                    Save as Template
-                  </button>
-                )}
-                {viewMode === "archived" && (
-                  <button
-                    suppressHydrationWarning
-                    onClick={handleContinueArchivedThread}
-                    className="text-xs px-3 py-1.5 rounded-lg bg-cyan-600 text-white border border-cyan-700 hover:bg-cyan-700 transition-all duration-200"
-                  >
-                    Continue Here
-                  </button>
-                )}
+              <div className="flex items-center gap-4 text-[13px] font-medium">
                 {viewMode === "live" && (
                   <button
                     suppressHydrationWarning
                     onClick={handleToggleDesktopFullscreen}
-                    className="text-xs px-3 py-1.5 rounded-lg bg-blue-600 text-white border border-blue-700 dark:bg-blue-500 dark:border-blue-400 hover:bg-blue-700 dark:hover:bg-blue-600 transition-all duration-200 flex items-center gap-1.5"
+                    className="flex items-center gap-2 text-zinc-400 hover:text-zinc-200 transition-colors"
                   >
-                    <svg viewBox="0 0 20 20" fill="currentColor" className="w-3.5 h-3.5">
-                      {isDesktopFullscreen ? (
-                        <path d="M2.75 5A2.25 2.25 0 0 1 5 2.75h2a.75.75 0 0 1 0 1.5H5A.75.75 0 0 0 4.25 5v2a.75.75 0 0 1-1.5 0V5Zm10.25-2.25A.75.75 0 0 1 13.75 2h2A2.25 2.25 0 0 1 18 4.25v2a.75.75 0 0 1-1.5 0v-2a.75.75 0 0 0-.75-.75h-2a.75.75 0 0 1-.75-.75ZM3.5 12.75a.75.75 0 0 1 .75.75v2a.75.75 0 0 0 .75.75h2a.75.75 0 0 1 0 1.5H5a2.25 2.25 0 0 1-2.25-2.25v-2a.75.75 0 0 1 .75-.75Zm13.75 0a.75.75 0 0 1 .75.75v2A2.25 2.25 0 0 1 15.75 18h-2a.75.75 0 0 1 0-1.5h2a.75.75 0 0 0 .75-.75v-2a.75.75 0 0 1 .75-.75Z" />
-                      ) : isDesktopVisible ? (
-                        <path d="M3.5 2.75A.75.75 0 0 1 4.25 2h3a.75.75 0 0 1 0 1.5H5.53l3.69 3.72a.75.75 0 1 1-1.06 1.06L4.5 4.6v1.65a.75.75 0 0 1-1.5 0v-3.5Zm13 0a.75.75 0 0 1 .75.75v3.5a.75.75 0 0 1-1.5 0V4.6l-3.69 3.68A.75.75 0 0 1 11 7.22l3.72-3.72h-1.97a.75.75 0 0 1 0-1.5h3a.75.75 0 0 1 .75.75ZM8.16 11.72a.75.75 0 0 1 1.06 1.06L5.53 16.5h1.72a.75.75 0 0 1 0 1.5h-3A.75.75 0 0 1 3.5 17.25v-3.5a.75.75 0 0 1 1.5 0v1.65l3.16-3.68Zm3.9 1.06a.75.75 0 1 1 1.06-1.06l3.16 3.68v-1.65a.75.75 0 0 1 1.5 0v3.5a.75.75 0 0 1-.75.75h-3a.75.75 0 0 1 0-1.5h1.72l-3.69-3.72Z" />
-                      ) : (
-                        <path d="M3 4a1 1 0 011-1h12a1 1 0 011 1v8a1 1 0 01-1 1H4a1 1 0 01-1-1V4zm1 0v8h12V4H4zm5.25 1.75a.75.75 0 011.5 0V9h3.25a.75.75 0 010 1.5H10.75v3.25a.75.75 0 01-1.5 0V10.5H6a.75.75 0 010-1.5h3.25V5.75z" />
-                      )}
-                    </svg>
+                    <Monitor className="w-4 h-4" />
                     {isDesktopFullscreen
-                      ? "Show Chat"
+                      ? "Exit Fullscreen"
                       : isDesktopVisible
-                        ? "Fullscreen Desktop"
+                        ? "Fullscreen"
                         : "Open Desktop"}
                   </button>
                 )}
@@ -1819,25 +1854,44 @@ export default function SessionPage() {
                   <button
                     suppressHydrationWarning
                     onClick={handleHideDesktop}
-                    className="text-xs px-3 py-1.5 rounded-lg bg-zinc-100 text-zinc-700 border border-zinc-200 dark:bg-zinc-800 dark:text-zinc-200 dark:border-zinc-700 hover:bg-zinc-200 dark:hover:bg-zinc-700 transition-all duration-200"
+                    className="text-zinc-400 hover:text-zinc-200 transition-colors"
                   >
-                    Hide Desktop
+                    Hide
                   </button>
                 )}
 
-                <button
-                  suppressHydrationWarning
-                  onClick={() => router.push("/settings/api")}
-                  className="text-xs px-3 py-1.5 rounded-lg bg-blue-50 text-blue-700 border border-blue-200 dark:bg-blue-500/10 dark:border-blue-400 hover:bg-blue-100 dark:hover:bg-blue-600/20 transition-all duration-200"
-                >
-                  Settings
+                {!isNewSession && (
+                  <button
+                    suppressHydrationWarning
+                    onClick={handleOpenSaveTemplate}
+                    className="text-zinc-400 hover:text-zinc-200 transition-colors ml-1"
+                  >
+                    Save Template
+                  </button>
+                )}
+                {viewMode === "archived" && (
+                  <button
+                    suppressHydrationWarning
+                    onClick={handleContinueArchivedThread}
+                    className="text-emerald-400 hover:text-emerald-300 transition-colors"
+                  >
+                    Continue
+                  </button>
+                )}
+                
+                <button className="text-zinc-400 hover:text-zinc-300 ml-2" onClick={() => router.push("/settings/api")}>
+                  <Settings className="w-4 h-4" />
                 </button>
+                <button className="text-zinc-400 hover:text-zinc-300">
+                  <User className="w-4 h-4" />
+                </button>
+
                 <button
                   suppressHydrationWarning
                   onClick={handleEnd}
-                  className="text-xs px-3 py-1.5 rounded-lg border border-red-500/20 text-red-400 hover:bg-red-500/10 hover:border-red-500/30 transition-all duration-200"
+                  className="text-red-400 hover:text-red-300 transition-colors ml-2"
                 >
-                  {viewMode === "live" ? "End Session" : "Dashboard"}
+                  {viewMode === "live" ? "End" : "Exit"}
                 </button>
               </div>
             </header>
@@ -1846,7 +1900,7 @@ export default function SessionPage() {
             <div className="flex-1 flex overflow-hidden">
               {/* Left/Middle: Chat Sidebar */}
               <div
-                className={`bg-[#fafafa] dark:bg-[#111114] overflow-hidden transition-all duration-300 ease-in-out ${
+                className={`bg-[#fafafa] dark:bg-[#1a1a1c] overflow-hidden transition-all duration-300 ease-in-out ${
                   isDesktopVisible && isDesktopFullscreen
                     ? "hidden"
                     : isDesktopVisible
@@ -1907,7 +1961,7 @@ export default function SessionPage() {
                 {/* Input area */}
                 {viewMode === "live" ? (
                   <div className="px-4 pb-6 pt-2 shrink-0">
-                    <div className="mx-auto w-full max-w-4xl relative">
+                    <div className="mx-auto w-full max-w-2xl relative">
                       <TodoList items={todoItems} />
                       {uploadedFiles.length > 0 ? (
                         <div className="mb-3 flex flex-wrap gap-2">
@@ -1929,9 +1983,9 @@ export default function SessionPage() {
                           ))}
                         </div>
                       ) : null}
-                      <div className="flex flex-col gap-2 bg-white/60 dark:bg-[#151515]/60 backdrop-blur-2xl border border-black/5 dark:border-white/5 rounded-3xl p-3 shadow-[0_8px_30px_rgb(0,0,0,0.04)] dark:shadow-[0_8px_30px_rgb(0,0,0,0.2)] focus-within:shadow-[0_8px_40px_rgb(0,0,0,0.08)] dark:focus-within:shadow-[0_8px_40px_rgb(0,0,0,0.3)] transition-all duration-500">
+                      <div className="relative flex flex-col bg-transparent border border-zinc-700/50 rounded-2xl p-1 shadow-2xl transition-all focus-within:border-zinc-500/50">
                         {/* Text input (Top) */}
-                        <div className="relative flex w-full items-start px-2 pt-1">
+                        <div className="relative flex w-full items-start px-4 py-3">
                           <textarea
                             suppressHydrationWarning
                             ref={inputRef}
@@ -1943,99 +1997,163 @@ export default function SessionPage() {
                                 handleTextSubmit();
                               }
                             }}
-                            placeholder="Send message to CoComputer..."
+                            placeholder="Send message to CoComputer"
                             rows={1}
-                            className="w-full bg-transparent border-none p-0 text-sm text-foreground dark:text-zinc-100 placeholder:text-zinc-500 focus:outline-none focus:ring-0 resize-none overflow-y-auto max-h-40 leading-relaxed"
+                            className="w-full bg-transparent border-none p-0 text-[15px] text-zinc-200 placeholder-zinc-500 focus:outline-none focus:ring-0 resize-none overflow-y-auto max-h-40 leading-relaxed placeholder:font-medium"
                           />
                         </div>
 
                         {/* Action buttons (Bottom) */}
-                        <div className="flex items-center justify-between w-full">
+                        <div className="flex items-center justify-between mt-1 px-2 pb-2">
                           {/* Action buttons left */}
-                          <div className="flex items-center gap-1 shrink-0">
+                          <div className="flex items-center gap-2">
                             <button
                               type="button"
                               onClick={handleOpenFilePicker}
                               disabled={uploadDisabled}
-                              title="Upload files"
-                              className="w-8 h-8 flex items-center justify-center rounded-full text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-300 hover:bg-zinc-200/50 dark:hover:bg-zinc-700/50 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                              title="Attach"
+                              className="p-1.5 text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800 rounded-full transition-colors flex items-center justify-center border border-zinc-700/50 disabled:opacity-40 disabled:cursor-not-allowed"
                             >
-                              <Paperclip className="w-4 h-4" />
+                              <Plus className="w-4 h-4" />
                             </button>
+                            
                             <div ref={connectorMenuRef} className="relative">
                               <button
                                 type="button"
                                 onClick={() => setIsConnectorMenuOpen((open) => !open)}
-                                className="h-8 rounded-full px-3 text-sm font-medium text-zinc-500 transition-colors hover:bg-zinc-200/50 hover:text-zinc-800 dark:hover:bg-zinc-700/50 dark:hover:text-zinc-300"
+                                className="p-1.5 text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800 rounded transition-colors flex items-center gap-1.5"
+                                title="Links"
                               >
-                                <span className="inline-flex items-center gap-1.5">
-                                  <Link2 className="h-4 w-4" />
-                                  <span className="max-w-32 truncate">{selectedConnectorLabel}</span>
-                                  <ChevronDown className="h-3.5 w-3.5" />
-                                </span>
+                                <Link2 className="w-4 h-4" />
+                                {selectedConnectorIds.length > 0 && (
+                                  <span className="text-[10px] bg-indigo-500 text-white rounded-full w-4 h-4 flex items-center justify-center font-bold">
+                                    {selectedConnectorIds.length}
+                                  </span>
+                                )}
                               </button>
-                              {isConnectorMenuOpen ? (
-                                <div className="absolute bottom-full left-0 mb-2 w-72 rounded-2xl border border-zinc-200 bg-white p-2 shadow-xl dark:border-zinc-800 dark:bg-[#17171c]">
-                                  <div className="px-2 pb-2 text-xs uppercase tracking-[0.16em] text-zinc-500">
-                                    Connected tools
-                                  </div>
-                                  <div className="space-y-1">
-                                    {availableConnectors.map((connector) => {
-                                      const checked = selectedConnectorIds.includes(connector.connection_id);
-                                      return (
-                                        <button
-                                          key={connector.connection_id}
-                                          type="button"
-                                          onClick={() => toggleConnectorSelection(connector.connection_id)}
-                                          className="flex w-full items-center justify-between rounded-xl px-3 py-2 text-left text-sm hover:bg-zinc-100 dark:hover:bg-zinc-800/70"
+                              <AnimatePresence>
+                                {isConnectorMenuOpen && (
+                                  <motion.div 
+                                    initial={{ opacity: 0, scale: 0.95, y: 10 }}
+                                    animate={{ opacity: 1, scale: 1, y: 0 }}
+                                    exit={{ opacity: 0, scale: 0.95, y: 10 }}
+                                    className="absolute left-0 bottom-full mb-3 w-80 rounded-2xl border border-zinc-800 bg-[#161618] p-1.5 shadow-2xl z-50 overflow-hidden"
+                                  >
+                                    {/* Search & Actions Header */}
+                                    <div className="p-2 flex flex-col gap-2 border-b border-zinc-800/50 mb-1">
+                                      <div className="relative flex items-center">
+                                        <Search className="absolute left-2.5 w-3.5 h-3.5 text-zinc-500" />
+                                        <input 
+                                          autoFocus
+                                          type="text"
+                                          value={connectorSearch}
+                                          onChange={(e) => setConnectorSearch(e.target.value)}
+                                          placeholder="Search tools..."
+                                          className="w-full bg-zinc-900/50 border border-zinc-800 rounded-lg pl-8 pr-3 py-1.5 text-xs text-zinc-200 placeholder:text-zinc-600 focus:outline-none focus:ring-1 focus:ring-indigo-500/50 transition-all"
+                                        />
+                                      </div>
+                                      <div className="flex items-center justify-between px-1">
+                                        <span className="text-[10px] uppercase tracking-widest font-bold text-zinc-500">Connectors</span>
+                                        <button 
+                                          onClick={() => {
+                                            const filteredIds = availableConnectors
+                                              .filter(c => c.name.toLowerCase().includes(connectorSearch.toLowerCase()))
+                                              .map(c => c.connection_id);
+                                            
+                                            if (filteredIds.every(id => selectedConnectorIds.includes(id))) {
+                                              setSelectedConnectorIds(prev => prev.filter(id => !filteredIds.includes(id)));
+                                            } else {
+                                              setSelectedConnectorIds(prev => Array.from(new Set([...prev, ...filteredIds])));
+                                            }
+                                          }}
+                                          className="text-[10px] font-bold text-indigo-400 hover:text-indigo-300 transition-colors"
                                         >
-                                          <div>
-                                            <div className="font-medium text-zinc-900 dark:text-zinc-100">
-                                              {connector.name}
-                                            </div>
-                                            <div className="text-xs uppercase tracking-[0.12em] text-zinc-500">
-                                              {connector.provider}
-                                            </div>
-                                          </div>
-                                          <span
-                                            className={`flex h-5 w-5 items-center justify-center rounded-full border ${
-                                              checked
-                                                ? "border-zinc-900 bg-zinc-900 text-white dark:border-white dark:bg-white dark:text-black"
-                                                : "border-zinc-300 text-transparent dark:border-zinc-700"
-                                            }`}
-                                          >
-                                            <Check className="h-3.5 w-3.5" />
-                                          </span>
+                                          Toggle All
                                         </button>
-                                      );
-                                    })}
-                                  </div>
-                                </div>
-                              ) : null}
+                                      </div>
+                                    </div>
+
+                                    {/* Scrollable List */}
+                                    <div className="max-h-64 overflow-y-auto custom-scrollbar space-y-0.5 px-0.5">
+                                      {availableConnectors
+                                        .filter(c => c.name.toLowerCase().includes(connectorSearch.toLowerCase()))
+                                        .map((connector) => {
+                                          const checked = selectedConnectorIds.includes(connector.connection_id);
+                                          return (
+                                            <button
+                                              key={connector.connection_id}
+                                              type="button"
+                                              onClick={() => toggleConnectorSelection(connector.connection_id)}
+                                              className={`flex w-full items-center justify-between rounded-xl px-3 py-2.5 text-left transition-all ${
+                                                checked ? "bg-indigo-500/5" : "hover:bg-zinc-800/60"
+                                              }`}
+                                            >
+                                              <div className="flex items-center gap-3">
+                                                <div className={`w-8 h-8 rounded-lg flex items-center justify-center border ${checked ? "border-indigo-500/30 bg-indigo-500/10" : "border-zinc-800 bg-zinc-900/50"}`}>
+                                                  <Globe className={`w-4 h-4 ${checked ? "text-indigo-400" : "text-zinc-500"}`} />
+                                                </div>
+                                                <div className="flex flex-col">
+                                                  <div className={`text-[13px] font-medium leading-tight ${checked ? "text-zinc-100" : "text-zinc-300"}`}>
+                                                    {connector.name}
+                                                  </div>
+                                                  <div className="text-[10px] uppercase tracking-wider text-zinc-500 mt-0.5 font-semibold">
+                                                    {connector.provider}
+                                                  </div>
+                                                </div>
+                                              </div>
+                                              <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center transition-all ${
+                                                checked ? "border-indigo-500 bg-indigo-500 text-white" : "border-zinc-700 bg-transparent text-transparent"
+                                              }`}>
+                                                <Check className="w-3 h-3 stroke-[3]" />
+                                              </div>
+                                            </button>
+                                          );
+                                        })}
+                                      
+                                      {availableConnectors.filter(c => c.name.toLowerCase().includes(connectorSearch.toLowerCase())).length === 0 && (
+                                        <div className="py-8 text-center text-xs text-zinc-600 font-medium">
+                                          No tools found for "{connectorSearch}"
+                                        </div>
+                                      )}
+                                    </div>
+                                  </motion.div>
+                                )}
+                              </AnimatePresence>
                             </div>
+
+                            <button
+                              type="button"
+                              onClick={handleShowDesktop}
+                              title="Workspace Context"
+                              className="p-1.5 text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800 rounded transition-colors"
+                            >
+                              <Monitor className="w-4 h-4" />
+                            </button>
                           </div>
                           
                           {/* Action buttons right */}
-                          <div className="flex items-center gap-1 shrink-0">
-                            <MicButton
-                              isRecording={isRecording}
-                              onStart={toggleMic}
-                              onStop={toggleMic}
+                          <div className="flex items-center gap-2">
+                            <button
+                              onClick={toggleMic}
                               disabled={voiceStatus !== "connected"}
-                            />
+                              title="Voice Input"
+                              className={`p-1.5 rounded transition-colors ${
+                                isRecording ? "text-red-400 bg-red-500/10" : "text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800"
+                              } disabled:opacity-40`}
+                            >
+                              <Mic className="w-4 h-4" />
+                            </button>
                             <button
                               onClick={handleTextSubmit}
                               disabled={!textInput.trim() || isLoading || isUploadingFile}
-                              className={`w-8 h-8 flex items-center justify-center rounded-full transition-colors ${
+                              title="Send"
+                              className={`p-1.5 rounded-full transition-colors border border-zinc-700/50 ${
                                 textInput.trim() && !isLoading && !isUploadingFile
-                                  ? 'bg-zinc-800 dark:bg-zinc-200 text-white dark:text-zinc-900 hover:bg-zinc-700 dark:hover:bg-white' 
-                                  : 'bg-zinc-200 dark:bg-zinc-800 text-zinc-400 dark:text-zinc-600 cursor-not-allowed'
+                                  ? 'bg-[#3a3a3c] text-zinc-200 hover:bg-zinc-600' 
+                                  : 'bg-zinc-800 text-zinc-500 cursor-not-allowed opacity-50'
                               }`}
                             >
-                              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4">
-                                <line x1="12" y1="19" x2="12" y2="5"></line>
-                                <polyline points="5 12 12 5 19 12"></polyline>
-                              </svg>
+                              <ArrowUp className="w-4 h-4" />
                             </button>
                           </div>
                         </div>

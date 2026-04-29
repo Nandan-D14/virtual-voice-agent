@@ -3,12 +3,13 @@
 import { useAuth } from "@/lib/auth-context";
 import { useRouter, usePathname } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
-import { LogOut, X, Menu, ChevronLeft, ChevronRight, Plus, PanelLeft, Cpu } from "lucide-react";
+import { LogOut, X, Menu, ChevronLeft, ChevronRight, Plus, PanelLeft, Cpu, Search } from "lucide-react";
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { authenticatedFetch } from "@/lib/api-client";
 import { DEFAULT_PLAN_QUOTA, type PlanQuota } from "@/lib/message-types";
 import { NAV_LINKS, SIDEBAR_ACTIONS } from "@/lib/navigation";
+import { SearchModal } from "./search-modal";
 
 const NAV_ITEMS = NAV_LINKS as unknown as ReadonlyArray<{ href: string; icon: any; label?: string; name?: string }>;
 
@@ -20,6 +21,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const [isSidebarOpen, setIsSidebarOpen] = useState(true); // Mobile drawer
   const [isCollapsed, setIsCollapsed] = useState(false); // Desktop collapse
   const [quota, setQuota] = useState<PlanQuota | null>(null);
+  const [isSearchOpen, setIsSearchOpen] = useState(false);
 
   const isMobileViewport = () => typeof window !== "undefined" && window.innerWidth < 768;
 
@@ -96,7 +98,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         </div>
 
         {/* Actions */}
-        <div className="px-3 mt-2">
+        <div className="px-3 mt-2 space-y-1">
           <button
             onClick={handleNewSession}
             className={`w-full flex items-center gap-3 transition-all duration-200 rounded-lg ${
@@ -108,6 +110,20 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             <Plus className="w-4 h-4" strokeWidth={2.5} />
             {!isCollapsed && <span className="text-[13px] font-medium tracking-tight">New task</span>}
           </button>
+          
+          <button
+            onClick={() => {
+              setIsSearchOpen(true);
+              if (isMobileViewport()) setIsSidebarOpen(false);
+            }}
+            className={`w-full flex items-center gap-3 transition-all duration-200 rounded-lg text-zinc-600 dark:text-zinc-400 hover:bg-zinc-200/50 dark:hover:bg-zinc-800/50 hover:text-zinc-900 dark:hover:text-zinc-200 ${
+              isCollapsed ? "justify-center p-2.5" : "px-3 py-2"
+            }`}
+            title={isCollapsed ? "Search" : ""}
+          >
+            <Search className="w-4 h-4" />
+            {!isCollapsed && <span className="text-[13px] font-medium tracking-tight">Search</span>}
+          </button>
         </div>
 
         {/* Nav Links */}
@@ -115,6 +131,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           {NAV_ITEMS.map(({ href, icon: Icon, label, name }) => {
             const active = pathname.startsWith(href);
             const displayName = label || name;
+
             return (
               <Link
                 key={href}
@@ -205,6 +222,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           onClick={() => setIsSidebarOpen(false)}
         />
       )}
+
+      <AnimatePresence>
+        {isSearchOpen && (
+          <SearchModal isOpen={true} onClose={() => setIsSearchOpen(false)} />
+        )}
+      </AnimatePresence>
     </div>
   );
 }

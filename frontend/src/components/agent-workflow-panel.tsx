@@ -34,8 +34,10 @@ export function AgentWorkflowPanel({
 
   if (!run || run.steps.length === 0) {
     return (
-      <div className="h-full flex items-center justify-center">
-        <p className="text-[13px] text-zinc-500 font-medium">{emptyState}</p>
+      <div className="h-full flex items-center justify-center p-12 text-center">
+        <p className="text-[13px] text-zinc-600 font-medium tracking-tight leading-relaxed max-w-[180px]">
+          {emptyState}
+        </p>
       </div>
     );
   }
@@ -43,28 +45,30 @@ export function AgentWorkflowPanel({
   const isRunning = run.status === "running";
 
   return (
-    <div className="h-full flex flex-col bg-[#0e0e10]">
-      {/* Minimal Header */}
-      <div className="shrink-0 px-6 py-4 flex items-center justify-between bg-[#0e0e10]/90 backdrop-blur-lg z-20 sticky top-0 border-b border-white/[0.03]">
-        <div className="flex items-center gap-3">
-          <h2 className="text-[14px] font-semibold text-zinc-200 tracking-tight">
+    <div className="h-full flex flex-col bg-[#09090b]">
+      {/* Ultra-minimal header */}
+      <div className="shrink-0 px-6 py-4 flex items-center justify-between bg-[#09090b]/80 backdrop-blur-xl z-20 sticky top-0 border-b border-white/[0.03]">
+        <div className="flex items-center gap-4">
+          <h2 className="text-[13px] font-bold text-zinc-100 tracking-tight">
             {run.title || "Execution Log"}
           </h2>
-          <div className="flex items-center justify-center px-1.5 py-0.5 rounded bg-zinc-800/50 border border-zinc-700/50">
-            <span className="text-[10px] text-zinc-400 font-bold tracking-widest uppercase">
-              {run.steps.length} {run.steps.length === 1 ? "step" : "steps"}
-            </span>
-          </div>
+          <div className="h-3 w-[1px] bg-zinc-800" />
+          <span className="text-[10px] text-zinc-500 font-bold tracking-widest uppercase">
+            {run.steps.length} {run.steps.length === 1 ? "step" : "steps"}
+          </span>
         </div>
+        
         {isRunning && (
           <div className="flex items-center gap-2.5">
-            <span className="text-[11px] text-cyan-500 font-bold uppercase tracking-widest flex items-center gap-2">
-              <span className="relative flex h-2 w-2">
+            <div className="flex items-center gap-2 px-2 py-0.5 rounded-full bg-cyan-500/10 border border-cyan-500/20">
+              <span className="relative flex h-1.5 w-1.5">
                 <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-cyan-400 opacity-75"></span>
-                <span className="relative inline-flex rounded-full h-2 w-2 bg-cyan-500"></span>
+                <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-cyan-500"></span>
               </span>
-              Active
-            </span>
+              <span className="text-[9px] text-cyan-400 font-black uppercase tracking-[0.15em]">
+                Live
+              </span>
+            </div>
           </div>
         )}
       </div>
@@ -72,19 +76,19 @@ export function AgentWorkflowPanel({
       {/* Steps Feed */}
       <div
         ref={scrollRef}
-        className="flex-1 overflow-y-auto px-6 py-6 relative scroll-smooth custom-scrollbar"
+        className="flex-1 overflow-y-auto px-6 py-8 relative scroll-smooth custom-scrollbar"
       >
         {/* Continuous minimal timeline line */}
-        <div className="absolute left-[38px] top-8 bottom-8 w-[1px] bg-zinc-800/40" />
+        <div className="absolute left-[36px] top-10 bottom-10 w-[1px] bg-zinc-800/40" />
 
-        <div className="space-y-3 relative z-10">
+        <div className="space-y-1 relative z-10">
           <AnimatePresence initial={false} mode="popLayout">
             {run.steps.map((step, index) => (
               <motion.div
                 key={step.step_id}
-                initial={{ opacity: 0, y: 8, filter: "blur(2px)" }}
+                initial={{ opacity: 0, y: 4, filter: "blur(1px)" }}
                 animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
-                transition={{ duration: 0.3, ease: [0.23, 1, 0.32, 1] }}
+                transition={{ duration: 0.25, ease: [0.23, 1, 0.32, 1] }}
                 className="relative"
               >
                 <WorkflowStep
@@ -100,16 +104,16 @@ export function AgentWorkflowPanel({
           <AnimatePresence>
             {isRunning && (
               <motion.div
-                initial={{ opacity: 0, y: 5 }}
+                initial={{ opacity: 0, y: 4 }}
                 animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, scale: 0.9 }}
-                className="relative flex items-start gap-4 ml-1.5 mt-2"
+                exit={{ opacity: 0 }}
+                className="relative flex items-center gap-4 ml-1.5 py-4"
               >
-                <div className="w-6 h-6 rounded-full bg-[#161618] border border-zinc-700/50 shadow-sm flex items-center justify-center shrink-0 z-10 mt-[2px]">
-                  <Loader2 className="w-3.5 h-3.5 text-zinc-400 animate-spin" />
+                <div className="w-5 h-5 rounded-full bg-zinc-900 border border-zinc-800 flex items-center justify-center shrink-0 z-10">
+                  <div className="w-1 h-1 rounded-full bg-zinc-500 animate-pulse" />
                 </div>
-                <div className="text-[13px] text-zinc-500 font-medium py-1 italic">
-                  Agent is reasoning...
+                <div className="text-[13px] text-zinc-500 font-medium italic tracking-tight">
+                  Reasoning...
                 </div>
               </motion.div>
             )}

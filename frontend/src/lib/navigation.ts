@@ -1,8 +1,8 @@
 import {
   MessageSquare,
-  Monitor,
+  History,
   Workflow,
-  FolderOpen,
+  Cable,
   PlusCircle,
   Bot,
   Search,
@@ -12,9 +12,9 @@ import {
 
 export const NAV_LINKS = [
   { name: "Chat Console", href: "/dashboard", icon: MessageSquare },
-  { name: "Live Desktop", href: "/history", icon: Monitor },
+  { name: "History", href: "/history", icon: History },
   { name: "Agent Workflow", href: "/templates", icon: Workflow },
-  { name: "Context Packets", href: "/connectors", icon: FolderOpen },
+  { name: "Connectors", href: "/connectors", icon: Cable },
   { name: "Settings", href: "/settings", icon: Settings },
 ] as const;
 
