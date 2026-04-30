@@ -12,14 +12,11 @@ import {
 } from "react";
 
 import { Check, ChevronDown, Link2, Paperclip, X, Plus, Monitor, Mic, ArrowUp, Signal, Globe, User, Settings, Search } from "lucide-react";
+import Image from "next/image";
 import { motion, AnimatePresence } from "framer-motion";
 
 import { DemoPicker } from "@/components/demo-picker";
 import type { AgentVisualAction } from "@/components/desktop-panel";
-import { ContextPacketPanel } from "@/components/context-packet-panel";
-import { MicButton } from "@/components/mic-button";
-import { OutputsPanel } from "@/components/outputs-panel";
-import { RunLogPanel } from "@/components/run-log-panel";
 import { SessionNavSidebar } from "@/components/session-nav-sidebar";
 import { WorkflowTemplateEditorModal } from "@/components/workflow-template-editor-modal";
 import { UnifiedChatPanel } from "@/components/unified-chat-panel";
@@ -32,7 +29,6 @@ import { useAuth } from "@/lib/auth-context";
 import { AudioPlayer } from "@/lib/audio-playback";
 import type {
   ArchivedMessage,
-  ContextPacket,
   RunArtifact,
   RunInfo,
   RunStep,
@@ -49,6 +45,12 @@ import { useSession } from "@/lib/use-session";
 import { useWorkflowTemplates } from "@/lib/use-workflow-templates";
 import { useWebSocket } from "@/lib/use-websocket";
 import { useToast } from "@/components/toast-provider";
+import { useSettings } from "@/lib/settings-context";
+import {
+  classifyAgentTool,
+  displayAgentToolName,
+  surfaceForAgentTool,
+} from "@/lib/agent-tool-classification";
 
 /* ------------------------------------------------------------------ */
 /*  Unified chat item type                                             */
@@ -73,16 +75,6 @@ type PendingSessionAction =
   | { type: "openDesktop" }
   | { type: "startMic" };
 
-type SessionSurface = "conversation" | "run_log" | "outputs" | "context";
-
-type ContextPacketMeta = {
-  stage: string;
-  action: string;
-  estimated_tokens?: number;
-  reasoning_model: string;
-  vision_model: string;
-};
-
 type PendingTurnInput = {
   text: string;
   connectorIds?: string[];
@@ -94,8 +86,26 @@ function numericArg(args: Record<string, unknown>, key: string): number | undefi
   return typeof value === "number" && Number.isFinite(value) ? value : undefined;
 }
 
+function providerLogo(provider: string) {
+  switch (provider) {
+    case "google_drive":
+      return "https://www.gstatic.com/images/branding/product/2x/drive_2020q4_48dp.png";
+    case "gmail":
+      return "https://www.gstatic.com/images/branding/product/2x/gmail_2020q4_48dp.png";
+    case "google_calendar":
+      return "https://www.gstatic.com/images/branding/product/2x/calendar_2020q4_48dp.png";
+    case "google_tasks":
+      return "https://upload.wikimedia.org/wikipedia/commons/5/5f/Google_Tasks_2021.svg";
+    case "github":
+      return "https://upload.wikimedia.org/wikipedia/commons/9/91/Octicons-mark-github.svg";
+    default:
+      return null;
+  }
+}
+
 function toolAction(tool: string, args: Record<string, unknown>): AgentVisualAction {
   const ts = Date.now();
+  const provider = classifyAgentTool(tool);
   if (tool === "left_click" || tool === "right_click" || tool === "double_click") {
     return { kind: "click", label: "Clicking", x: numericArg(args, "x"), y: numericArg(args, "y"), ts };
   }
@@ -118,18 +128,11 @@ function toolAction(tool: string, args: Record<string, unknown>): AgentVisualAct
   if (tool === "write_todo_list" || tool === "prepare_task_workspace") {
     return { kind: "command", label: "Planning", ts };
   }
-  return { kind: "command", label: "Working", ts };
+  return { kind: "command", label: provider === "generic" ? "Working" : displayAgentToolName(tool), ts };
 }
 
 function displayStepTitle(title: string, tool?: string, stepType?: string): string {
-  if (tool === "run_command") return "Execute Terminal";
-  if (tool === "web_search") return "Web Search";
-  if (tool === "scrape_web_page") return "Read Web Page";
-  if (tool === "open_browser") return "Open Browser";
-  if (tool === "write_workspace_file") return "Write File";
-  if (tool === "read_workspace_file") return "Read File";
-  if (tool === "list_workspace_files") return "List Files";
-  if (tool === "take_screenshot") return "Screenshot";
+  if (tool) return displayAgentToolName(tool);
   return title || `${stepType || "workflow"} step`;
 }
 
@@ -186,14 +189,6 @@ function normalizePendingTurnInput(value: unknown): PendingTurnInput | null {
     ? record.uploadedFiles.filter((item): item is UploadedInputFile => Boolean(item && typeof item === "object"))
     : [];
   return { text, connectorIds, uploadedFiles };
-}
-
-function connectorButtonLabel(connectors: SessionConnector[], selectedIds: string[]): string {
-  if (selectedIds.length === 0) return "Connectors";
-  if (selectedIds.length === 1) {
-    return connectors.find((connector) => connector.connection_id === selectedIds[0])?.name ?? "1 connector";
-  }
-  return `${selectedIds.length} connectors`;
 }
 
 function upsertRunStep(prev: RunStep[], nextStep: RunStep): RunStep[] {
@@ -332,6 +327,7 @@ export default function SessionPage() {
   const searchParams = useSearchParams();
   const sessionId = params.id as string;
   const { user, isLoading: authLoading } = useAuth();
+  const { setIsSettingsOpen, requiresByokSetup } = useSettings();
   const {
     createSession,
     continueSession,
@@ -359,12 +355,10 @@ export default function SessionPage() {
   const [forcedTab, setForcedTab] = useState<"workflow" | "desktop" | null>(null);
   const [runArtifacts, setRunArtifacts] = useState<RunArtifact[]>([]);
   const [viewMode, setViewMode] = useState<"live" | "archived">("live");
-  const [activeSurface, setActiveSurface] = useState<SessionSurface>("conversation");
   const [pageError, setPageError] = useState<string | null>(null);
   const [streamUrl, setStreamUrl] = useState<string | null>(null);
   const [phase, setPhase] = useState<SessionPhase>("idle");
   const [chatItems, setChatItems] = useState<ChatItem[]>([]);
-  const [contextMeta, setContextMeta] = useState<ContextPacketMeta | null>(null);
   const [textInput, setTextInput] = useState("");
   const [availableConnectors, setAvailableConnectors] = useState<SessionConnector[]>([SYSTEM_CONNECTOR]);
   const [selectedConnectorIds, setSelectedConnectorIds] = useState<string[]>([]);
@@ -379,7 +373,6 @@ export default function SessionPage() {
   const [isDesktopFullscreen, setIsDesktopFullscreen] = useState(false);
   const [pendingText, setPendingText] = useState<PendingTurnInput | null>(null);
   const [pendingMicStart, setPendingMicStart] = useState(false);
-  const [activeAgent, setActiveAgent] = useState<string>("nexus");
   const [agentStatus, setAgentStatus] = useState("");
   const [agentAction, setAgentAction] = useState<AgentVisualAction | null>(null);
   const [isTemplateDialogOpen, setIsTemplateDialogOpen] = useState(false);
@@ -615,8 +608,9 @@ export default function SessionPage() {
 
       case "agent_tool_call":
         setPhase("acting");
-        setAgentStatus(`Running ${msg.tool}...`);
+        setAgentStatus(`Running ${displayAgentToolName(msg.tool)}...`);
         setAgentAction(toolAction(msg.tool, msg.args));
+        setForcedTab(surfaceForAgentTool(msg.tool));
         setChatItems((prev) => [
           ...prev,
           { kind: "event", type: msg.type, tool: msg.tool, args: msg.args, ts },
@@ -632,6 +626,7 @@ export default function SessionPage() {
 
       case "agent_screenshot":
         setAgentAction({ kind: "observe", label: "Observing screen", ts });
+        setForcedTab("desktop");
         setChatItems((prev) => [
           ...prev,
           {
@@ -754,13 +749,6 @@ export default function SessionPage() {
         break;
 
       case "context_packet":
-        setContextMeta({
-          stage: msg.stage,
-          action: msg.action,
-          estimated_tokens: msg.estimated_tokens,
-          reasoning_model: msg.reasoning_model,
-          vision_model: msg.vision_model,
-        });
         setSessionInfo((prev) =>
           prev
             ? {
@@ -880,6 +868,11 @@ export default function SessionPage() {
     };
 
     const toWorkflowStepType = (stepType: string, tool?: string): StepType => {
+      const provider = classifyAgentTool(tool);
+      if (provider === "gmail") return "gmail";
+      if (provider === "calendar") return "calendar";
+      if (provider === "tasks") return "tasks";
+      if (provider === "mcp") return "mcp";
       if (tool === "run_command") return "terminal";
       if (tool === "web_search" || tool === "scrape_web_page" || tool === "open_browser") return "browser";
       if (
@@ -953,11 +946,9 @@ export default function SessionPage() {
       setPageError(null);
       setPhase("idle");
       setChatItems([]);
-      setActiveSurface("conversation");
       setRunInfo(null);
       setRunSteps([]);
       setRunArtifacts([]);
-      setContextMeta(null);
       setStreamUrl(null);
       setSessionData(null);
       setSessionInfo(null);
@@ -1159,7 +1150,6 @@ export default function SessionPage() {
             : prev,
         );
         setViewMode("live");
-        setActiveSurface("conversation");
         setIsDesktopFullscreen(false);
         setHasActivatedSession(true);
         if (options?.openDesktop || shouldAutoResume) {
@@ -1288,6 +1278,12 @@ export default function SessionPage() {
 
   /* ---- Actions ---- */
   const toggleMic = useCallback(() => {
+    if (requiresByokSetup) {
+      setIsSettingsOpen(true);
+      toast("Please set up your API keys to continue.", "info");
+      return;
+    }
+
     if (isNewSession) {
       void createThreadFromAction({ type: "startMic" });
       return;
@@ -1422,6 +1418,13 @@ export default function SessionPage() {
   const handleTextSubmit = useCallback(() => {
     const text = textInput.trim();
     if (!text) return;
+
+    if (requiresByokSetup) {
+      setIsSettingsOpen(true);
+      toast("Please set up your API keys to continue.", "info");
+      return;
+    }
+
     const payload: PendingTurnInput = {
       text,
       connectorIds: selectedConnectorIds,
@@ -1435,7 +1438,7 @@ export default function SessionPage() {
     sendTextOrQueue(payload);
     setTextInput("");
     setUploadedFiles([]);
-  }, [createThreadFromPrompt, isNewSession, selectedConnectorIds, sendTextOrQueue, textInput, uploadedFiles]);
+  }, [createThreadFromPrompt, isNewSession, requiresByokSetup, selectedConnectorIds, sendTextOrQueue, setIsSettingsOpen, textInput, toast, uploadedFiles]);
 
   const handleShowDesktop = useCallback(() => {
     if (isNewSession) {
@@ -1471,6 +1474,11 @@ export default function SessionPage() {
 
   const handleDemo = useCallback(
     (text: string) => {
+      if (requiresByokSetup) {
+        setIsSettingsOpen(true);
+        toast("Please set up your API keys to continue.", "info");
+        return;
+      }
       const payload: PendingTurnInput = { text };
       if (isNewSession) {
         void createThreadFromAction({ type: "demo", payload });
@@ -1482,7 +1490,7 @@ export default function SessionPage() {
       }
       sendTextOrQueue(payload);
     },
-    [continueCurrentThread, createThreadFromAction, isNewSession, sendTextOrQueue, viewMode],
+    [continueCurrentThread, createThreadFromAction, isNewSession, requiresByokSetup, sendTextOrQueue, setIsSettingsOpen, toast, viewMode],
   );
 
   const handlePermissionRespond = useCallback(
@@ -1517,7 +1525,6 @@ export default function SessionPage() {
       const action = JSON.parse(raw) as PendingSessionAction | { type: "demo" | "prompt"; text?: string };
 
       autoActionHandledRef.current = true;
-      setActiveSurface("conversation");
 
       if (action.type === "openDesktop") {
         setHasActivatedSession(true);
@@ -1552,7 +1559,6 @@ export default function SessionPage() {
       return;
     }
     autoResumeTriggeredRef.current = true;
-    setActiveSurface("conversation");
     void continueCurrentThread(shouldAutoResume ? { openDesktop: true } : undefined);
   }, [continueCurrentThread, isNewSession, shouldAutoContinue, shouldAutoResume, viewMode]);
 
@@ -1643,7 +1649,6 @@ export default function SessionPage() {
     pendingMicStart ||
     viewMode === "archived";
   const hasStarted = hasConversationStarted || isDesktopVisible;
-  const selectedConnectorLabel = connectorButtonLabel(availableConnectors, selectedConnectorIds);
   const uploadDisabled = isNewSession || viewMode !== "live" || isUploadingFile;
   const canShowComposer = !isNewSession;
 
@@ -1675,7 +1680,7 @@ export default function SessionPage() {
               )}
               <button
                 suppressHydrationWarning
-                onClick={() => router.push("/settings/api")}
+                onClick={() => setIsSettingsOpen(true)}
                 className="text-xs px-3 py-1.5 rounded-lg bg-blue-50 text-blue-700 border border-blue-200 dark:bg-blue-500/10 dark:border-blue-400 hover:bg-blue-100 dark:hover:bg-blue-600/20 transition-all duration-200"
               >
                 Settings
@@ -1737,7 +1742,7 @@ export default function SessionPage() {
                       }}
                       placeholder="Send message to CoComputer"
                       rows={1}
-                      className="w-full bg-transparent border-none outline-none text-[18px] text-zinc-200 placeholder-zinc-500 resize-none overflow-y-auto no-scrollbar max-h-60 focus:ring-0 leading-relaxed placeholder:font-medium"
+                      className="w-full bg-transparent border-none outline-none text-[18px] text-zinc-900 dark:text-zinc-200 placeholder-zinc-500 resize-none overflow-y-auto no-scrollbar max-h-60 focus:ring-0 leading-relaxed placeholder:font-medium"
                     />
                   </div>
                   {uploadedFiles.length > 0 ? (
@@ -1793,26 +1798,25 @@ export default function SessionPage() {
                               initial={{ opacity: 0, scale: 0.95, y: 10 }}
                               animate={{ opacity: 1, scale: 1, y: 0 }}
                               exit={{ opacity: 0, scale: 0.95, y: 10 }}
-                              className="absolute left-0 bottom-full mb-3 w-80 rounded-2xl border border-zinc-800 bg-[#161618] p-1.5 shadow-2xl z-50 overflow-hidden"
+                              className="absolute left-0 bottom-full mb-3 w-80 rounded-[24px] border border-white/10 bg-zinc-950/90 backdrop-blur-2xl p-2 shadow-[0_20px_50px_rgba(0,0,0,0.5)] z-50 overflow-hidden"
                             >
                               {/* Search & Actions Header */}
-                              <div className="p-2 flex flex-col gap-2 border-b border-zinc-800/50 mb-1">
-                                <div className="relative flex items-center">
-                                  <Search className="absolute left-2.5 w-3.5 h-3.5 text-zinc-500" />
+                              <div className="px-2 py-2 flex flex-col gap-3 border-b border-white/5 mb-2">
+                                <div className="relative flex items-center group">
+                                  <Search className="absolute left-3 w-4 h-4 text-zinc-500 group-focus-within:text-indigo-400 transition-colors" />
                                   <input 
                                     autoFocus
                                     type="text"
                                     value={connectorSearch}
                                     onChange={(e) => setConnectorSearch(e.target.value)}
-                                    placeholder="Search tools..."
-                                    className="w-full bg-zinc-900/50 border border-zinc-800 rounded-lg pl-8 pr-3 py-1.5 text-xs text-zinc-200 placeholder:text-zinc-600 focus:outline-none focus:ring-1 focus:ring-indigo-500/50 transition-all"
+                                    placeholder="Search tools & connectors..."
+                                    className="w-full bg-white/5 border border-white/5 rounded-xl pl-10 pr-4 py-2 text-xs text-zinc-200 placeholder:text-zinc-600 focus:outline-none focus:ring-1 focus:ring-indigo-500/50 focus:bg-white/[0.08] transition-all"
                                   />
                                 </div>
                                 <div className="flex items-center justify-between px-1">
-                                  <span className="text-[10px] uppercase tracking-widest font-bold text-zinc-500">Connectors</span>
+                                  <span className="text-[10px] uppercase tracking-[0.15em] font-bold text-zinc-500">Available Tools</span>
                                   <button 
                                     onClick={() => {
-                                      const allIds = availableConnectors.map(c => c.connection_id);
                                       const filteredIds = availableConnectors
                                         .filter(c => c.name.toLowerCase().includes(connectorSearch.toLowerCase()))
                                         .map(c => c.connection_id);
@@ -1823,7 +1827,7 @@ export default function SessionPage() {
                                         setSelectedConnectorIds(prev => Array.from(new Set([...prev, ...filteredIds])));
                                       }
                                     }}
-                                    className="text-[10px] font-bold text-indigo-400 hover:text-indigo-300 transition-colors"
+                                    className="text-[10px] font-bold text-indigo-400 hover:text-indigo-300 transition-colors px-2 py-1 rounded-md hover:bg-indigo-500/10"
                                   >
                                     Toggle All
                                   </button>
@@ -1831,45 +1835,61 @@ export default function SessionPage() {
                               </div>
 
                               {/* Scrollable List */}
-                              <div className="max-h-64 overflow-y-auto custom-scrollbar space-y-0.5 px-0.5">
+                              <div className="max-h-60 overflow-y-auto custom-scrollbar space-y-0.5 px-1 pb-1">
                                 {availableConnectors
                                   .filter(c => c.name.toLowerCase().includes(connectorSearch.toLowerCase()))
                                   .map((connector) => {
                                     const checked = selectedConnectorIds.includes(connector.connection_id);
+                                    const logo = providerLogo(connector.provider);
                                     return (
                                       <button
                                         key={connector.connection_id}
                                         type="button"
                                         onClick={() => toggleConnectorSelection(connector.connection_id)}
-                                        className={`flex w-full items-center justify-between rounded-xl px-3 py-2.5 text-left transition-all ${
-                                          checked ? "bg-indigo-500/5" : "hover:bg-zinc-800/60"
+                                        className={`flex w-full items-center justify-between rounded-xl px-2.5 py-2 text-left transition-all duration-200 group/item ${
+                                          checked 
+                                            ? "bg-indigo-500/10 border border-indigo-500/20 shadow-[inset_0_1px_1px_rgba(255,255,255,0.05)]" 
+                                            : "hover:bg-white/5 border border-transparent"
                                         }`}
                                       >
-                                        <div className="flex items-center gap-3">
-                                          <div className={`w-8 h-8 rounded-lg flex items-center justify-center border ${checked ? "border-indigo-500/30 bg-indigo-500/10" : "border-zinc-800 bg-zinc-900/50"}`}>
-                                            <Globe className={`w-4 h-4 ${checked ? "text-indigo-400" : "text-zinc-500"}`} />
+                                        <div className="flex items-center gap-2.5">
+                                          <div className={`w-8 h-8 rounded-lg flex items-center justify-center border transition-all duration-300 overflow-hidden ${
+                                            checked 
+                                              ? "border-indigo-500/40 bg-indigo-500/20 text-indigo-400 shadow-[0_0_10px_rgba(99,102,241,0.2)]" 
+                                              : "border-white/10 bg-white/5 text-zinc-500 group-hover/item:text-zinc-300 group-hover/item:border-white/20"
+                                          }`}>
+                                            {logo ? (
+                                              <Image src={logo} alt={connector.provider} width={18} height={18} className={`object-contain ${connector.provider === "github" ? "dark:invert" : ""}`} />
+                                            ) : (
+                                              <Globe className="w-4 h-4" />
+                                            )}
                                           </div>
                                           <div className="flex flex-col">
-                                            <div className={`text-[13px] font-medium leading-tight ${checked ? "text-zinc-100" : "text-zinc-300"}`}>
+                                            <div className={`text-xs font-semibold leading-tight transition-colors ${checked ? "text-white" : "text-zinc-400 group-hover/item:text-zinc-200"}`}>
                                               {connector.name}
                                             </div>
-                                            <div className="text-[10px] uppercase tracking-wider text-zinc-500 mt-0.5 font-semibold">
+                                            <div className={`text-[9px] uppercase tracking-wider mt-0.5 font-bold ${checked ? "text-indigo-400/80" : "text-zinc-600"}`}>
                                               {connector.provider}
                                             </div>
                                           </div>
                                         </div>
-                                        <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center transition-all ${
-                                          checked ? "border-indigo-500 bg-indigo-500 text-white" : "border-zinc-700 bg-transparent text-transparent"
+                                        <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center transition-all duration-300 ${
+                                          checked 
+                                            ? "border-indigo-500 bg-indigo-500 text-white scale-110 shadow-[0_0_8px_rgba(99,102,241,0.4)]" 
+                                            : "border-zinc-700 bg-transparent text-transparent group-hover/item:border-zinc-500"
                                         }`}>
-                                          <Check className="w-3 h-3 stroke-[3]" />
+                                          <Check className="w-2.5 h-2.5 stroke-[4]" />
                                         </div>
                                       </button>
                                     );
                                   })}
                                 
                                 {availableConnectors.filter(c => c.name.toLowerCase().includes(connectorSearch.toLowerCase())).length === 0 && (
-                                  <div className="py-8 text-center text-xs text-zinc-600 font-medium">
-                                    No tools found for &quot;{connectorSearch}&quot;
+                                  <div className="py-12 flex flex-col items-center justify-center gap-3">
+                                    <div className="w-12 h-12 rounded-full bg-white/5 flex items-center justify-center">
+                                      <Search className="w-6 h-6 text-zinc-700" />
+                                    </div>
+                                    <p className="text-xs text-zinc-600 font-medium">No tools found for &quot;{connectorSearch}&quot;</p>
                                   </div>
                                 )}
                               </div>
@@ -1990,7 +2010,7 @@ export default function SessionPage() {
                   </button>
                 )}
                 
-                <button className="text-zinc-400 hover:text-zinc-300 ml-2" onClick={() => router.push("/settings/api")}>
+                <button className="text-zinc-400 hover:text-zinc-300 ml-2" onClick={() => setIsSettingsOpen(true)}>
                   <Settings className="w-4 h-4" />
                 </button>
                 <button className="text-zinc-400 hover:text-zinc-300">
@@ -2102,7 +2122,7 @@ export default function SessionPage() {
                             }}
                             placeholder="Send message to CoComputer"
                             rows={1}
-                            className="w-full bg-transparent border-none p-0 text-[18px] text-zinc-200 placeholder-zinc-500 focus:outline-none focus:ring-0 resize-none overflow-y-auto no-scrollbar max-h-60 leading-relaxed placeholder:font-medium"
+                            className="w-full bg-transparent border-none p-0 text-[18px] text-zinc-900 dark:text-zinc-200 placeholder-zinc-500 focus:outline-none focus:ring-0 resize-none overflow-y-auto no-scrollbar max-h-60 leading-relaxed placeholder:font-medium"
                           />
                         </div>
 
@@ -2140,23 +2160,23 @@ export default function SessionPage() {
                                     initial={{ opacity: 0, scale: 0.95, y: 10 }}
                                     animate={{ opacity: 1, scale: 1, y: 0 }}
                                     exit={{ opacity: 0, scale: 0.95, y: 10 }}
-                                    className="absolute left-0 bottom-full mb-3 w-80 rounded-2xl border border-zinc-800 bg-[#161618] p-1.5 shadow-2xl z-50 overflow-hidden"
+                                    className="absolute left-0 bottom-full mb-3 w-80 rounded-[24px] border border-white/10 bg-zinc-950/90 backdrop-blur-2xl p-2 shadow-[0_20px_50px_rgba(0,0,0,0.5)] z-50 overflow-hidden"
                                   >
                                     {/* Search & Actions Header */}
-                                    <div className="p-2 flex flex-col gap-2 border-b border-zinc-800/50 mb-1">
-                                      <div className="relative flex items-center">
-                                        <Search className="absolute left-2.5 w-3.5 h-3.5 text-zinc-500" />
+                                    <div className="px-2 py-2 flex flex-col gap-3 border-b border-white/5 mb-2">
+                                      <div className="relative flex items-center group">
+                                        <Search className="absolute left-3 w-4 h-4 text-zinc-500 group-focus-within:text-indigo-400 transition-colors" />
                                         <input 
                                           autoFocus
                                           type="text"
                                           value={connectorSearch}
                                           onChange={(e) => setConnectorSearch(e.target.value)}
-                                          placeholder="Search tools..."
-                                          className="w-full bg-zinc-900/50 border border-zinc-800 rounded-lg pl-8 pr-3 py-1.5 text-xs text-zinc-200 placeholder:text-zinc-600 focus:outline-none focus:ring-1 focus:ring-indigo-500/50 transition-all"
+                                          placeholder="Search tools & connectors..."
+                                          className="w-full bg-white/5 border border-white/5 rounded-xl pl-10 pr-4 py-2 text-xs text-zinc-200 placeholder:text-zinc-600 focus:outline-none focus:ring-1 focus:ring-indigo-500/50 focus:bg-white/[0.08] transition-all"
                                         />
                                       </div>
                                       <div className="flex items-center justify-between px-1">
-                                        <span className="text-[10px] uppercase tracking-widest font-bold text-zinc-500">Connectors</span>
+                                        <span className="text-[10px] uppercase tracking-[0.15em] font-bold text-zinc-500">Available Tools</span>
                                         <button 
                                           onClick={() => {
                                             const filteredIds = availableConnectors
@@ -2169,7 +2189,7 @@ export default function SessionPage() {
                                               setSelectedConnectorIds(prev => Array.from(new Set([...prev, ...filteredIds])));
                                             }
                                           }}
-                                          className="text-[10px] font-bold text-indigo-400 hover:text-indigo-300 transition-colors"
+                                          className="text-[10px] font-bold text-indigo-400 hover:text-indigo-300 transition-colors px-2 py-1 rounded-md hover:bg-indigo-500/10"
                                         >
                                           Toggle All
                                         </button>
@@ -2177,45 +2197,60 @@ export default function SessionPage() {
                                     </div>
 
                                     {/* Scrollable List */}
-                                    <div className="max-h-64 overflow-y-auto custom-scrollbar space-y-0.5 px-0.5">
+                                    <div className="max-h-60 overflow-y-auto custom-scrollbar space-y-0.5 px-1 pb-1">
                                       {availableConnectors
                                         .filter(c => c.name.toLowerCase().includes(connectorSearch.toLowerCase()))
                                         .map((connector) => {
                                           const checked = selectedConnectorIds.includes(connector.connection_id);
+                                          const logo = providerLogo(connector.provider);
                                           return (
                                             <button
                                               key={connector.connection_id}
                                               type="button"
                                               onClick={() => toggleConnectorSelection(connector.connection_id)}
-                                              className={`flex w-full items-center justify-between rounded-xl px-3 py-2.5 text-left transition-all ${
-                                                checked ? "bg-indigo-500/5" : "hover:bg-zinc-800/60"
+                                              className={`flex w-full items-center justify-between rounded-xl px-2.5 py-2 text-left transition-all duration-200 group/item ${
+                                                checked 
+                                                  ? "bg-indigo-500/10 border border-indigo-500/20 shadow-[inset_0_1px_1px_rgba(255,255,255,0.05)]" 
+                                                  : "hover:bg-white/5 border border-transparent"
                                               }`}
                                             >
-                                              <div className="flex items-center gap-3">
-                                                <div className={`w-8 h-8 rounded-lg flex items-center justify-center border ${checked ? "border-indigo-500/30 bg-indigo-500/10" : "border-zinc-800 bg-zinc-900/50"}`}>
-                                                  <Globe className={`w-4 h-4 ${checked ? "text-indigo-400" : "text-zinc-500"}`} />
+                                              <div className="flex items-center gap-2.5">
+                                                <div className={`w-8 h-8 rounded-lg flex items-center justify-center border transition-all duration-300 overflow-hidden ${
+                                                  checked 
+                                                    ? "border-indigo-500/40 bg-indigo-500/20 text-indigo-400 shadow-[0_0_10px_rgba(99,102,241,0.2)]" 
+                                                    : "border-white/10 bg-white/5 text-zinc-500 group-hover/item:text-zinc-300 group-hover/item:border-white/20"
+                                                }`}>
+                                                  {logo ? (
+                                                    <Image src={logo} alt={connector.provider} width={18} height={18} className={`object-contain ${connector.provider === "github" ? "dark:invert" : ""}`} />
+                                                  ) : (
+                                                    <Globe className="w-4 h-4" />
+                                                  )}
                                                 </div>
                                                 <div className="flex flex-col">
-                                                  <div className={`text-[13px] font-medium leading-tight ${checked ? "text-zinc-100" : "text-zinc-300"}`}>
+                                                  <div className={`text-xs font-semibold leading-tight transition-colors ${checked ? "text-white" : "text-zinc-400 group-hover/item:text-zinc-200"}`}>
                                                     {connector.name}
                                                   </div>
-                                                  <div className="text-[10px] uppercase tracking-wider text-zinc-500 mt-0.5 font-semibold">
+                                                  <div className={`text-[9px] uppercase tracking-wider mt-0.5 font-bold ${checked ? "text-indigo-400/80" : "text-zinc-600"}`}>
                                                     {connector.provider}
                                                   </div>
                                                 </div>
                                               </div>
-                                              <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center transition-all ${
-                                                checked ? "border-indigo-500 bg-indigo-500 text-white" : "border-zinc-700 bg-transparent text-transparent"
+                                              <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center transition-all duration-300 ${
+                                                checked 
+                                                  ? "border-indigo-500 bg-indigo-500 text-white scale-110 shadow-[0_0_8px_rgba(99,102,241,0.4)]" 
+                                                  : "border-zinc-700 bg-transparent text-transparent group-hover/item:border-zinc-500"
                                               }`}>
-                                                <Check className="w-3 h-3 stroke-[3]" />
+                                                <Check className="w-2.5 h-2.5 stroke-[4]" />
                                               </div>
                                             </button>
                                           );
-                                        })}
-                                      
+                                        })}                                      
                                       {availableConnectors.filter(c => c.name.toLowerCase().includes(connectorSearch.toLowerCase())).length === 0 && (
-                                        <div className="py-8 text-center text-xs text-zinc-600 font-medium">
-                                          No tools found for &quot;{connectorSearch}&quot;
+                                        <div className="py-12 flex flex-col items-center justify-center gap-3">
+                                          <div className="w-12 h-12 rounded-full bg-white/5 flex items-center justify-center">
+                                            <Search className="w-6 h-6 text-zinc-700" />
+                                          </div>
+                                          <p className="text-xs text-zinc-600 font-medium">No tools found for &quot;{connectorSearch}&quot;</p>
                                         </div>
                                       )}
                                     </div>
@@ -2269,7 +2304,7 @@ export default function SessionPage() {
               {/* Right: Desktop panel */}
               {viewMode === "live" && isDesktopVisible ? (
                 <div className="flex-[2] min-w-0 flex overflow-hidden transition-all duration-300 ease-in-out">
-                  <div className="flex-1 flex flex-col overflow-hidden p-3 bg-zinc-50 dark:bg-[#151515]">
+                  <div className="flex-1 flex flex-col overflow-hidden p-0 bg-zinc-50 dark:bg-[#151515]">
                     <div className="w-full h-full xl:max-w-7xl mx-auto rounded-xl overflow-hidden border border-zinc-200 dark:border-zinc-800/80 shadow-2xl relative">
                       <WorkflowDesktopContainer
                         workflowRun={workflowRun}
