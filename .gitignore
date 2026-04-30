@@ -38,6 +38,7 @@ ui-debug.log
 .firebase/
 
 # ── Python ────────────────────────────────────────────────────
+build/
 __pycache__/
 *.py[cod]
 *$py.class
