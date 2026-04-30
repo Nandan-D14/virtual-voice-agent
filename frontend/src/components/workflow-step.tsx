@@ -42,6 +42,8 @@ export type WorkflowStepData = {
   image_b64?: string;
   command?: string;
   args?: Record<string, unknown>;
+  metadata?: Record<string, unknown>;
+  tool?: string;
   created_at: string;
   completed_at?: string;
 };
@@ -50,6 +52,8 @@ type Props = {
   step: WorkflowStepData;
   isLast?: boolean;
   stepNumber?: number;
+  disableDetails?: boolean;
+  onSelect?: () => void;
 };
 
 function formatTime(isoString: string): string {
@@ -74,16 +78,17 @@ function getStepIcon(type: StepType, status: StepStatus) {
   return <Bot className="w-[11px] h-[11px] text-zinc-400" />;
 }
 
-export function WorkflowStep({ step, isLast = false }: Props) {
+export function WorkflowStep({ step, isLast = false, disableDetails = false, onSelect }: Props) {
   const [expanded, setExpanded] = useState(false);
   const [imageExpanded, setImageExpanded] = useState(false);
 
   const isFailed = step.status === "failed";
   const isInProgress = step.status === "in_progress";
   
-  const hasDetails = Boolean(
+  const hasDetails = !disableDetails && Boolean(
     step.detail || step.output || step.error || step.command || step.image_b64 || (step.args && Object.keys(step.args).length > 0)
   );
+  const isSelectable = Boolean(onSelect);
 
   return (
     <div className="relative group">
@@ -106,8 +111,11 @@ export function WorkflowStep({ step, isLast = false }: Props) {
         {/* Content */}
         <div className="flex-1 min-w-0 pt-1 pb-2">
           <div 
-            className={`flex items-start justify-between gap-4 rounded-md transition-colors ${hasDetails ? "cursor-pointer hover:bg-white/[0.02] -ml-2 -mt-1 p-2" : ""}`}
-            onClick={() => hasDetails && setExpanded(!expanded)}
+            className={`flex items-start justify-between gap-4 rounded-md transition-colors ${(hasDetails || isSelectable) ? "cursor-pointer hover:bg-white/[0.02] -ml-2 -mt-1 p-2" : ""}`}
+            onClick={() => {
+              onSelect?.();
+              if (hasDetails) setExpanded(!expanded);
+            }}
           >
             <div className="flex-1 min-w-0">
               <div className={`text-[13.5px] leading-snug tracking-tight font-medium ${isFailed ? "text-red-400" : isInProgress ? "text-zinc-200" : "text-zinc-300"}`}>

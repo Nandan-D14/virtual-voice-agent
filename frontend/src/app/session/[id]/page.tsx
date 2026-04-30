@@ -15,7 +15,7 @@ import { Check, ChevronDown, Link2, Paperclip, X, Plus, Monitor, Mic, ArrowUp, S
 import { motion, AnimatePresence } from "framer-motion";
 
 import { DemoPicker } from "@/components/demo-picker";
-import { DesktopPanel } from "@/components/desktop-panel";
+import type { AgentVisualAction } from "@/components/desktop-panel";
 import { ContextPacketPanel } from "@/components/context-packet-panel";
 import { MicButton } from "@/components/mic-button";
 import { OutputsPanel } from "@/components/outputs-panel";
@@ -88,6 +88,50 @@ type PendingTurnInput = {
   connectorIds?: string[];
   uploadedFiles?: UploadedInputFile[];
 };
+
+function numericArg(args: Record<string, unknown>, key: string): number | undefined {
+  const value = args[key];
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+function toolAction(tool: string, args: Record<string, unknown>): AgentVisualAction {
+  const ts = Date.now();
+  if (tool === "left_click" || tool === "right_click" || tool === "double_click") {
+    return { kind: "click", label: "Clicking", x: numericArg(args, "x"), y: numericArg(args, "y"), ts };
+  }
+  if (tool === "move_mouse") {
+    return { kind: "move", label: "Moving pointer", x: numericArg(args, "x"), y: numericArg(args, "y"), ts };
+  }
+  if (tool === "drag") {
+    return { kind: "drag", label: "Dragging", x: numericArg(args, "to_x"), y: numericArg(args, "to_y"), ts };
+  }
+  if (tool === "type_text") return { kind: "typing", label: "Typing", ts };
+  if (tool === "press_key") return { kind: "key", label: "Pressing key", ts };
+  if (tool === "scroll_screen") {
+    return { kind: "scroll", label: "Scrolling", direction: String(args.direction || ""), ts };
+  }
+  if (tool === "take_screenshot") return { kind: "observe", label: "Observing screen", ts };
+  if (tool === "open_browser" || tool === "web_search" || tool === "scrape_web_page") {
+    return { kind: "browser", label: tool === "web_search" ? "Searching web" : "Opening page", ts };
+  }
+  if (tool === "run_command") return { kind: "command", label: "Running command", ts };
+  if (tool === "write_todo_list" || tool === "prepare_task_workspace") {
+    return { kind: "command", label: "Planning", ts };
+  }
+  return { kind: "command", label: "Working", ts };
+}
+
+function displayStepTitle(title: string, tool?: string, stepType?: string): string {
+  if (tool === "run_command") return "Execute Terminal";
+  if (tool === "web_search") return "Web Search";
+  if (tool === "scrape_web_page") return "Read Web Page";
+  if (tool === "open_browser") return "Open Browser";
+  if (tool === "write_workspace_file") return "Write File";
+  if (tool === "read_workspace_file") return "Read File";
+  if (tool === "list_workspace_files") return "List Files";
+  if (tool === "take_screenshot") return "Screenshot";
+  return title || `${stepType || "workflow"} step`;
+}
 
 type SessionConnector = {
   connection_id: string;
@@ -337,6 +381,7 @@ export default function SessionPage() {
   const [pendingMicStart, setPendingMicStart] = useState(false);
   const [activeAgent, setActiveAgent] = useState<string>("nexus");
   const [agentStatus, setAgentStatus] = useState("");
+  const [agentAction, setAgentAction] = useState<AgentVisualAction | null>(null);
   const [isTemplateDialogOpen, setIsTemplateDialogOpen] = useState(false);
   const [templateDraft, setTemplateDraft] = useState<TemplateFormValue>(EMPTY_TEMPLATE);
   const [isSavingTemplate, setIsSavingTemplate] = useState(false);
@@ -553,7 +598,10 @@ export default function SessionPage() {
           ...prev,
           { kind: "message", role: msg.role, text: msg.text, ts },
         ]);
-        if (msg.role === "agent") setPhase("done");
+        if (msg.role === "agent") {
+          setPhase("done");
+          setAgentAction(null);
+        }
         break;
 
       case "agent_thinking":
@@ -568,6 +616,7 @@ export default function SessionPage() {
       case "agent_tool_call":
         setPhase("acting");
         setAgentStatus(`Running ${msg.tool}...`);
+        setAgentAction(toolAction(msg.tool, msg.args));
         setChatItems((prev) => [
           ...prev,
           { kind: "event", type: msg.type, tool: msg.tool, args: msg.args, ts },
@@ -582,6 +631,7 @@ export default function SessionPage() {
         break;
 
       case "agent_screenshot":
+        setAgentAction({ kind: "observe", label: "Observing screen", ts });
         setChatItems((prev) => [
           ...prev,
           {
@@ -597,6 +647,7 @@ export default function SessionPage() {
       case "agent_complete":
         setPhase("done");
         setAgentStatus("");
+        setAgentAction(null);
         setChatItems((prev) => [
           ...prev,
           { kind: "event", type: msg.type, summary: msg.summary, ts },
@@ -828,7 +879,16 @@ export default function SessionPage() {
       "error": "failed",
     };
 
-    const toWorkflowStepType = (stepType: string): StepType => {
+    const toWorkflowStepType = (stepType: string, tool?: string): StepType => {
+      if (tool === "run_command") return "terminal";
+      if (tool === "web_search" || tool === "scrape_web_page" || tool === "open_browser") return "browser";
+      if (
+        tool === "write_workspace_file" ||
+        tool === "read_workspace_file" ||
+        tool === "list_workspace_files"
+      ) return "file_created";
+      if (tool === "take_screenshot") return "screenshot";
+
       if (
         stepType === "thinking" ||
         stepType === "tool_call" ||
@@ -853,19 +913,27 @@ export default function SessionPage() {
       steps: runSteps.map((step) => {
         const metadata = step.metadata ?? {};
         const args = metadata.args;
+        const result = metadata.result;
+        const tool = typeof metadata.tool === "string"
+          ? metadata.tool
+          : result && typeof result === "object" && !Array.isArray(result) && typeof (result as Record<string, unknown>).tool === "string"
+            ? String((result as Record<string, unknown>).tool)
+            : undefined;
 
         return {
           step_id: step.step_id,
-          step_type: toWorkflowStepType(step.step_type),
+          step_type: toWorkflowStepType(step.step_type, tool),
           status: stepStatusMap[step.status] || "pending",
-          title: step.title || `${step.step_type} step`,
+          title: displayStepTitle(step.title, tool, step.step_type),
           detail: step.detail || "",
           created_at: step.created_at ?? new Date().toISOString(),
           command: typeof metadata.command === "string" ? metadata.command : undefined,
           args: args && typeof args === "object" && !Array.isArray(args) ? args as Record<string, unknown> : undefined,
-          output: typeof metadata.output === "string" ? metadata.output : undefined,
+          output: typeof metadata.output === "string" ? metadata.output : step.detail || undefined,
           error: step.error ?? undefined,
           image_b64: typeof metadata.image_b64 === "string" ? metadata.image_b64 : undefined,
+          metadata: metadata && typeof metadata === "object" && !Array.isArray(metadata) ? metadata : undefined,
+          tool,
         };
       }),
     });
@@ -1549,6 +1617,12 @@ export default function SessionPage() {
     },
     [isNewSession, saveSessionAsTemplate, sessionId, toast],
   );
+
+  useEffect(() => {
+    if (!agentAction) return;
+    const timeout = window.setTimeout(() => setAgentAction(null), 2200);
+    return () => window.clearTimeout(timeout);
+  }, [agentAction]);
 
   /* ---- Render ---- */
   const latestAnalysis = useMemo(() => {
@@ -2236,6 +2310,7 @@ export default function SessionPage() {
                         onForcedTabAck={() => setForcedTab(null)}
                         phase={phase}
                         agentStatus={agentStatus}
+                        agentAction={agentAction}
                         onStopAgent={handleStopAgent}
                       />
                     </div>

@@ -8,6 +8,7 @@ import hashlib
 import logging
 from typing import TYPE_CHECKING, Any
 
+import httpx
 from starlette.websockets import WebSocket, WebSocketState
 
 from nexus.agent import AgentTurnResult, create_agent, create_multi_agent, create_runner, run_agent_turn
@@ -30,13 +31,16 @@ from nexus.tools._context import (
 )
 from nexus.config import settings
 from nexus.prompts.system import SYSTEM_PROMPT, VOICE_SYSTEM_PROMPT
+from nexus.routing import classify_request, extract_search_query
+from nexus.runtime_config import build_genai_client
+from nexus.tools.web import parse_duckduckgo_results
 from nexus.tools.workspace import (
     derive_session_workspace_path,
     derive_workspace_path,
     prepare_task_workspace,
     write_workspace_file,
 )
-from nexus.usage import TokenUsageRecord
+from nexus.usage import TokenUsageRecord, extract_token_usage_records
 
 if TYPE_CHECKING:
     from nexus.session import Session
@@ -308,6 +312,13 @@ class NexusOrchestrator:
         """Handle direct text input (bypass voice)."""
         await self._send_json({"type": "transcript", "role": "user", "text": text})
         await self._persist_message(role="user", source="typed", text=text)
+        if await self._try_fast_route(
+            text,
+            source="typed",
+            has_connectors=bool(connector_ids),
+            has_uploads=bool(uploaded_files),
+        ):
+            return
         await self._run_agent_tracked(
             await self._build_turn_input(
                 text,
@@ -325,7 +336,138 @@ class NexusOrchestrator:
         """Called when Gemini Live produces a final user transcript."""
         await self._send_json({"type": "transcript", "role": "user", "text": text})
         await self._persist_message(role="user", source="voice", text=text)
+        if await self._try_fast_route(text, source="voice"):
+            return
         await self._run_agent_tracked(await self._build_turn_input(text), source="voice")
+
+    async def _try_fast_route(
+        self,
+        text: str,
+        *,
+        source: str,
+        has_connectors: bool = False,
+        has_uploads: bool = False,
+    ) -> bool:
+        if not settings.simple_task_fast_path:
+            return False
+
+        decision = classify_request(
+            text,
+            has_connectors=has_connectors,
+            has_uploads=has_uploads,
+        )
+        if decision.needs_full_agent:
+            return False
+
+        logger.info(
+            "Fast route selected for session %s: %s (%s)",
+            self.session.id,
+            decision.mode,
+            decision.reason,
+        )
+
+        if decision.mode == "clarify":
+            await self._send_agent_fast_response(
+                decision.clarification or "What should I do next?",
+                source="clarification",
+            )
+            return True
+        if decision.mode == "search":
+            await self._run_fast_search(text)
+            return True
+        if decision.mode == "ask":
+            return await self._run_fast_answer(text, source=source)
+        return False
+
+    async def _send_agent_fast_response(self, text: str, *, source: str) -> None:
+        answer = text.strip()
+        if not answer:
+            return
+        await self._send_json({"type": "transcript", "role": "agent", "text": answer})
+        await self._persist_message(role="agent", source=source, text=answer)
+        if self._is_voice_ready():
+            try:
+                await self.voice.send_text(answer)
+            except Exception:
+                logger.warning("Failed to send fast-path response to voice", exc_info=True)
+        await self._send_json({"type": "agent_complete", "summary": answer[:200]})
+
+    async def _run_fast_answer(self, text: str, *, source: str) -> bool:
+        if not self.runtime_config.gemini_available:
+            return False
+        await self._send_json({"type": "agent_thinking", "content": "Answering directly..."})
+        model = self.runtime_config.gemini_light_model or self.runtime_config.gemini_agent_model
+        prompt = (
+            "Answer the user directly and concisely. Do not use tools. "
+            "If the answer needs current web information, say that a web search is needed.\n\n"
+            f"User: {text.strip()}"
+        )
+
+        def _generate() -> Any:
+            from google.genai import types
+
+            client = build_genai_client(self.runtime_config)
+            return client.models.generate_content(
+                model=model,
+                contents=[
+                    types.Content(
+                        role="user",
+                        parts=[types.Part(text=prompt)],
+                    )
+                ],
+            )
+
+        try:
+            response = await asyncio.to_thread(_generate)
+            for usage in extract_token_usage_records(
+                response,
+                default_source="agent.fast_answer",
+                default_model=model,
+            ):
+                await self._persist_token_usage(usage)
+            answer = self._clip_text(getattr(response, "text", "") or "", 1200)
+            if not answer:
+                return False
+            await self._send_agent_fast_response(answer, source=f"fast_answer:{source}")
+            return True
+        except Exception:
+            logger.warning("Fast answer failed; falling back to normal agent flow", exc_info=True)
+            return False
+
+    async def _run_fast_search(self, text: str) -> None:
+        query = extract_search_query(text)
+        await self._send_json({"type": "agent_thinking", "content": "Searching web..."})
+        try:
+            async with httpx.AsyncClient(
+                follow_redirects=True,
+                headers={"User-Agent": "CoComputer/1.0 (+https://cocomputer.local)"},
+                timeout=15.0,
+            ) as client:
+                response = await client.get("https://duckduckgo.com/html/", params={"q": query})
+                response.raise_for_status()
+            results = parse_duckduckgo_results(response.text, max_results=4)
+            if not results:
+                answer = f"No clear web results found for: {query}"
+            else:
+                lines = [f"Top results for: {query}"]
+                for index, result in enumerate(results, start=1):
+                    title = self._clip_text(str(result.get("title") or "Untitled"), 120)
+                    snippet = self._clip_text(str(result.get("snippet") or ""), 180)
+                    url = str(result.get("url") or "").strip()
+                    line = f"{index}. {title}"
+                    if snippet:
+                        line += f" - {snippet}"
+                    if url:
+                        line += f"\n{url}"
+                    lines.append(line)
+                answer = "\n\n".join(lines)
+            await self._send_agent_fast_response(answer, source="fast_search")
+        except Exception as exc:
+            logger.warning("Fast web search failed", exc_info=True)
+            await self._send_agent_fast_response(
+                f"Web search failed: {self._clip_text(str(exc), 240)}",
+                source="fast_search_error",
+            )
 
     async def handle_analyze_screen(self) -> None:
         """Take screenshot and send analysis to frontend."""
@@ -511,8 +653,6 @@ class NexusOrchestrator:
     _RATE_LIMIT_PATTERNS = ("429", "RESOURCE_EXHAUSTED", "quota", "rate limit", "too many requests")
     _RESUME_PACKET_SOFT_TOKENS = 2_000
     _RESUME_PACKET_HARD_TOKENS = 3_200
-    _SCREENSHOT_WARN_THRESHOLD = 6
-    _SCREENSHOT_WARNING_INTERVAL = 4
 
     def _is_rate_limit_error(self, exc: BaseException) -> bool:
         msg = str(exc).lower()
@@ -1254,24 +1394,6 @@ class NexusOrchestrator:
                 self._raise_if_agent_should_stop()
                 tool_name = self._get_attr(fc, "name", "tool_name") or str(fc)
                 tool_args = self._get_attr(fc, "args", "tool_input") or {}
-                if tool_name == "take_screenshot":
-                    next_count = self._turn_screenshot_count + 1
-                    if (
-                        next_count == self._SCREENSHOT_WARN_THRESHOLD
-                        or (
-                            next_count > self._SCREENSHOT_WARN_THRESHOLD
-                            and (next_count - self._SCREENSHOT_WARN_THRESHOLD) % self._SCREENSHOT_WARNING_INTERVAL == 0
-                        )
-                    ):
-                        await self._emit_budget_warning(
-                            state="soft_limit",
-                            action="prefer_cached_or_delta_analysis",
-                            message=(
-                                "Heavy screen observation detected. The run will continue, "
-                                "but screenshot analysis now prefers cached or delta reuse when possible."
-                            ),
-                            projected_total_tokens=next_count,
-                        )
                 step_id = await self._create_step(
                     step_type="tool_call",
                     title=f"Tool: {tool_name}",
@@ -1325,7 +1447,11 @@ class NexusOrchestrator:
                     await self._complete_step(
                         step_id,
                         detail=self._clip_text(output_str, 1500),
-                        metadata={"tool": tool_name},
+                        metadata=self._build_tool_result_metadata(
+                            tool_name=tool_name,
+                            output_mapping=output_mapping,
+                            output_str=output_str,
+                        ),
                     )
 
                     if tool_name == "take_screenshot":
@@ -2248,3 +2374,58 @@ class NexusOrchestrator:
                     "metadata": {"tool": tool_name, "ref_key": key},
                 }
         return None
+
+    def _build_tool_result_metadata(
+        self,
+        *,
+        tool_name: str,
+        output_mapping: dict[str, Any],
+        output_str: str,
+    ) -> dict[str, Any]:
+        metadata: dict[str, Any] = {
+            "tool": tool_name,
+            "output": self._clip_metadata_text(output_str, 8000),
+        }
+        clipped_result = self._clip_metadata_value(self._redact_mapping(output_mapping))
+        if isinstance(clipped_result, dict):
+            metadata["result"] = clipped_result
+
+        for key in (
+            "command",
+            "stdout_excerpt",
+            "stderr_excerpt",
+            "exit_code",
+            "query",
+            "results",
+            "saved_path",
+            "url",
+            "title",
+            "workspace_file",
+            "relative_path",
+            "content",
+            "bytes_written",
+            "append",
+            "output_path",
+        ):
+            if key in output_mapping:
+                metadata[key] = self._clip_metadata_value(output_mapping[key])
+        return metadata
+
+    def _clip_metadata_value(self, value: Any, *, text_limit: int = 12000) -> Any:
+        if isinstance(value, str):
+            return self._clip_metadata_text(value, text_limit)
+        if isinstance(value, list):
+            return [self._clip_metadata_value(item, text_limit=text_limit) for item in value[:20]]
+        if isinstance(value, dict):
+            return {
+                str(key): self._clip_metadata_value(raw, text_limit=text_limit)
+                for key, raw in list(value.items())[:40]
+            }
+        return value
+
+    @staticmethod
+    def _clip_metadata_text(value: str, limit: int) -> str:
+        text = value or ""
+        if len(text) <= limit:
+            return text
+        return text[: limit - 1].rstrip() + "…"
