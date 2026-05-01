@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { motion, AnimatePresence } from "framer-motion";
+import { useEffect, useMemo, useState, useTransition } from "react";
+import { motion } from "framer-motion";
+import type { LucideIcon } from "lucide-react";
 import {
   X,
   KeyRound,
@@ -10,17 +11,10 @@ import {
   Bell,
   Loader2,
   Save,
-  AlertCircle,
   CheckCircle2,
-  Server,
   Monitor,
   Sun,
   Moon,
-  Volume2,
-  AlertTriangle,
-  Mail,
-  Lock,
-  ChevronRight,
   Settings2,
 } from "lucide-react";
 import { useAuth } from "@/lib/auth-context";
@@ -30,6 +24,7 @@ import { useSettings } from "@/lib/settings-context";
 import {
   type GeminiProvider,
   type UserSettingsResponse,
+  type UserSettingsUpdatePayload,
   fetchUserSettings,
   updateUserSettings,
 } from "@/lib/user-settings";
@@ -50,15 +45,15 @@ type Props = {
 /*  Sub-components                                                       */
 /* ------------------------------------------------------------------ */
 
-function TabButton({ 
-  active, 
-  onClick, 
-  icon: Icon, 
-  label 
-}: { 
-  active: boolean; 
-  onClick: () => void; 
-  icon: any; 
+function TabButton({
+  active,
+  onClick,
+  icon: Icon,
+  label
+}: {
+  active: boolean;
+  onClick: () => void;
+  icon: LucideIcon;
   label: string;
 }) {
   return (
@@ -111,10 +106,10 @@ function ApiTab({ settings, onUpdate }: { settings: UserSettingsResponse | null;
     setSaving(true);
     setError(null);
     try {
-      const payload: any = { byok: { geminiProvider } };
-      if (e2bApiKey.trim()) payload.byok.e2bApiKey = e2bApiKey.trim();
-      if (geminiProvider === "apiKey" && geminiApiKey.trim()) payload.byok.geminiApiKey = geminiApiKey.trim();
-      if (accessCode.trim()) payload.byok.accessCode = accessCode.trim();
+      const payload: UserSettingsUpdatePayload = { byok: { geminiProvider } };
+      if (e2bApiKey.trim()) payload.byok!.e2bApiKey = e2bApiKey.trim();
+      if (geminiProvider === "apiKey" && geminiApiKey.trim()) payload.byok!.geminiApiKey = geminiApiKey.trim();
+      if (accessCode.trim()) payload.byok!.accessCode = accessCode.trim();
 
       const updated = await updateUserSettings(payload);
       onUpdate(updated);
@@ -123,8 +118,8 @@ function ApiTab({ settings, onUpdate }: { settings: UserSettingsResponse | null;
       
       // Refresh beta status to update requiresByokSetup globally
       void refreshBetaStatus();
-    } catch (err: any) {
-      setError(err.message || "Failed to save settings.");
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Failed to save settings.");
     } finally {
       setSaving(false);
     }
@@ -317,27 +312,29 @@ function VoiceTab({ settings, onUpdate }: { settings: UserSettingsResponse | nul
 }
 
 /* ── Notifications Tab ── */
+type NotificationPrefs = { sessionEnd: boolean; errors: boolean; weekly: boolean };
+
 function NotificationsTab() {
   const [saving, setSaving] = useState(false);
-  const [prefs, setPrefs] = useState({ sessionEnd: true, errors: true, weekly: false });
+  const [prefs, setPrefs] = useState<NotificationPrefs>({ sessionEnd: true, errors: true, weekly: false });
 
   return (
     <div className="space-y-10">
       <Section title="Notifications" description="Choose which alerts you want to receive.">
         <div className="space-y-2">
-          {[
-            { id: "sessionEnd", label: "Session completion alerts" },
-            { id: "errors", label: "Critical error reports" },
-            { id: "weekly", label: "Weekly activity digests" },
-          ].map((p) => (
+          {([
+            { id: "sessionEnd" as const, label: "Session completion alerts" },
+            { id: "errors" as const, label: "Critical error reports" },
+            { id: "weekly" as const, label: "Weekly activity digests" },
+          ] as const).map((p) => (
             <button
               key={p.id}
-              onClick={() => setPrefs({ ...prefs, [p.id]: !((prefs as any)[p.id]) })}
+              onClick={() => setPrefs({ ...prefs, [p.id]: !prefs[p.id] })}
               className="w-full flex items-center justify-between p-4 rounded-lg border border-zinc-800 bg-zinc-900/20 hover:bg-zinc-900/40 transition-all"
             >
               <span className="text-sm font-medium text-foreground">{p.label}</span>
-              <div className={`w-8 h-4 rounded-full relative transition-colors ${((prefs as any)[p.id]) ? "bg-white" : "bg-zinc-800"}`}>
-                <div className={`absolute top-0.5 w-3 h-3 rounded-full transition-all ${((prefs as any)[p.id]) ? "bg-black left-4.5" : "bg-zinc-500 left-0.5"}`} />
+              <div className={`w-8 h-4 rounded-full relative transition-colors ${prefs[p.id] ? "bg-white" : "bg-zinc-800"}`}>
+                <div className={`absolute top-0.5 w-3 h-3 rounded-full transition-all ${prefs[p.id] ? "bg-black left-4.5" : "bg-zinc-500 left-0.5"}`} />
               </div>
             </button>
           ))}
@@ -361,11 +358,23 @@ export function SettingsModal({ isOpen, onClose, initialTab = "api" }: Props) {
   const [activeTab, setActiveTab] = useState<TabId>(initialTab);
   const [settings, setSettings] = useState<UserSettingsResponse | null>(null);
   const [loading, setLoading] = useState(true);
+  const [, startTransition] = useTransition();
 
   useEffect(() => {
     if (!isOpen) return;
-    setLoading(true);
-    fetchUserSettings().then(setSettings).finally(() => setLoading(false));
+    startTransition(() => {
+      setLoading(true);
+    });
+    fetchUserSettings().then((data) => {
+      startTransition(() => {
+        setSettings(data);
+        setLoading(false);
+      });
+    }).catch(() => {
+      startTransition(() => {
+        setLoading(false);
+      });
+    });
   }, [isOpen]);
 
   if (!isOpen) return null;
